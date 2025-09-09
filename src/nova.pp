@@ -11,6 +11,7 @@ uses
   process;
 
 const
+  NOVA_VERSION = '1.0.0';
   VENDOR_DIR = 'vendor';
   LOCK_FILE = 'nova.lock';
   DEP_FILE = 'nova.json';
@@ -63,7 +64,7 @@ var
 
   //  procedure RunCommand(const Cmd: string; const Args: array of string);
   //  begin
-  //    Writeln(run_and_capture(Cmd, Args));
+  //    writeln(run_and_capture(Cmd, Args));
   //  end;
 
   //  { ------------------ SemVer ------------------ }
@@ -196,25 +197,25 @@ var
   //  end;
 
 
-    procedure git_clone_or_update(const Repo, Path: string; const ver: TVersion);
+  procedure git_clone_or_update(const Repo, Path: string; const ver: TVersion);
+  begin
+    if DirectoryExists(Path) then
     begin
-      if DirectoryExists(Path) then
-      begin
-        Writeln('Updating ', Repo, '...');
-        // Fetch all updates
-        run_and_capture('git', ['-C', Path, 'fetch', '--all']);
-        // Checkout the exact commit hash
-        run_and_capture('git', ['-C', Path, 'checkout', ver.hash]);
-      end
-      else
-      begin
-        Writeln('Cloning ', Repo, '@', ver.Name, '...');
-        // Clone the repository (full history required to checkout a commit hash)
-        run_and_capture('git', ['clone', 'https://github.com/' + Repo + '.git', Path]);
-        // Checkout the exact commit hash
-        run_and_capture('git', ['-C', Path, 'checkout', ver.hash]);
-      end;
+      writeln('Updating ', Repo, '...');
+      // Fetch all updates
+      run_and_capture('git', ['-C', Path, 'fetch', '--all']);
+      // Checkout the exact commit hash
+      run_and_capture('git', ['-C', Path, 'checkout', ver.hash]);
+    end
+    else
+    begin
+      writeln('Cloning ', Repo, '@', ver.Name, '...');
+      // Clone the repository (full history required to checkout a commit hash)
+      run_and_capture('git', ['clone', 'https://github.com/' + Repo + '.git', Path]);
+      // Checkout the exact commit hash
+      run_and_capture('git', ['-C', Path, 'checkout', ver.hash]);
     end;
+  end;
 
   //  { ------------------ JSON Helpers ------------------ }
 
@@ -255,12 +256,12 @@ var
 
   //  { ------------------ Package Management ------------------ }
 
-  function package_exists(JSONData: TJSONData; const Section, Repo: string): boolean;
+  function package_exists(const Section, Repo: string): boolean;
   var
     Obj: TJSONObject;
   begin
     Result := False;
-    Obj := TJSONObject(JSONData.FindPath(Section));
+    Obj := TJSONObject(jsonReq.FindPath(Section));
     if Obj <> nil then
       Result := Obj.IndexOfName(Repo) <> -1;
   end;
@@ -269,16 +270,14 @@ var
   //  //var
   //  //  Version: TVersion;
   //  //  Commit, Path, FinalConstraint: string;
-  //  //  JSONData, RequireObj, DevObj: TJSONObject;
+  //  //  RequireObj, DevObj: TJSONObject;
   //  //begin
   //  //  // --- Load dependency file ---
-  //  //  JSONData := create_or_load_json(DEP_FILE);
 
-  //  //  if package_exists(JSONData, 'require', Repo) or
-  //  //    package_exists(JSONData, 'require-dev', Repo) then
+  //  //  if package_exists(jsonReq, 'require', Repo) or
+  //  //    package_exists(jsonReq, 'require-dev', Repo) then
   //  //  begin
-  //  //    Writeln('Package "', Repo, '" is already present. Skipping.');
-  //  //    JSONData.Free;
+  //  //    writeln('Package "', Repo, '" is already present. Skipping.');
   //  //    exit;
   //  //  end;
 
@@ -295,29 +294,28 @@ var
   //  //  // --- Update nova.json ---
   //  //  if Dev then
   //  //  begin
-  //  //    DevObj := TJSONObject(JSONData.FindPath('require-dev'));
+  //  //    DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
   //  //    if DevObj = nil then
   //  //    begin
   //  //      DevObj := TJSONObject.Create;
-  //  //      JSONData.Add('require-dev', DevObj);
+  //  //      jsonReq.Add('require-dev', DevObj);
   //  //    end;
   //  //    DevObj.Add(Repo, FinalConstraint);
   //  //  end
   //  //  else
   //  //  begin
-  //  //    RequireObj := TJSONObject(JSONData.FindPath('require'));
+  //  //    RequireObj := TJSONObject(jsonReq.FindPath('require'));
   //  //    if RequireObj = nil then
   //  //    begin
   //  //      RequireObj := TJSONObject.Create;
-  //  //      JSONData.Add('require', RequireObj);
+  //  //      jsonReq.Add('require', RequireObj);
   //  //    end;
   //  //    RequireObj.Add(Repo, FinalConstraint);
   //  //  end;
 
-  //  //  save_json(DEP_FILE, JSONData);
-  //  //  JSONData.Free;
+  //  //  save_json(DEP_FILE, jsonReq);
 
-  //  //  Writeln('Using version ', FinalConstraint, ' for ', repo);
+  //  //  writeln('Using version ', FinalConstraint, ' for ', repo);
   //  //end;
 
   //  procedure CopyFile(fFrom, fTo: string);
@@ -334,7 +332,6 @@ var
   //  procedure GenerateFPCConfig(const ConfigFile: string; const VendorDir, BinDir: string);
   //  var
   //    LockData: TJSONObject;
-  //    JSONData: TJSONObject;
   //    Package, PathVal, BinFile: string;
   //    Keys: TStringList;
   //    I: integer;
@@ -350,13 +347,12 @@ var
   //      // Load nova.json
   //      if not FileExists(DEP_FILE) then
   //        Exit;
-  //      JSONData := TJSONObject(GetJSON(DEP_FILE, True));
 
   //      // Collect keys from require + require-dev
-  //      //if JSONData.FindPath('require') <> nil then
-  //      //  Keys.AddStrings(TJSONObject(JSONData.FindPath('require')).Names);
-  //      //if JSONData.FindPath('require-dev') <> nil then
-  //      //  Keys.AddStrings(TJSONObject(JSONData.FindPath('require-dev')).Names);
+  //      //if jsonReq.FindPath('require') <> nil then
+  //      //  Keys.AddStrings(TJSONObject(jsonReq.FindPath('require')).Names);
+  //      //if jsonReq.FindPath('require-dev') <> nil then
+  //      //  Keys.AddStrings(TJSONObject(jsonReq.FindPath('require-dev')).Names);
 
   //      for I := 0 to Keys.Count - 1 do
   //      begin
@@ -367,16 +363,16 @@ var
   //          PathDelim, [rfReplaceAll]);
 
   //        // Check for bin override
-  //        if (JSONData.FindPath('bin') <> nil) and
-  //          (TJSONObject(JSONData.FindPath('bin')).IndexOfName(Package) <> -1) then
+  //        if (jsonReq.FindPath('bin') <> nil) and
+  //          (TJSONObject(jsonReq.FindPath('bin')).IndexOfName(Package) <> -1) then
   //        begin
-  //          BinFile := TJSONObject(JSONData.FindPath('bin')).Get(Package, '');
+  //          BinFile := TJSONObject(jsonReq.FindPath('bin')).Get(Package, '');
   //          if FileExists(PathVal + PathDelim + BinFile) then
   //          begin
   //            // Copy binary to bin folder
   //            ForceDirectories(BinDir);
   //            CopyFile(PathVal + PathDelim + BinFile, BinDir + PathDelim + BinFile);
-  //            Writeln('Installed binary "', BinFile, '" to bin folder.');
+  //            writeln('Installed binary "', BinFile, '" to bin folder.');
   //          end;
   //        end
   //        else
@@ -386,7 +382,7 @@ var
   //        end;
   //      end;
 
-  //      // Write fpc.cfg
+  //      // write fpc.cfg
   //      FS := TFileStream.Create(ConfigFile, fmCreate);
   //      try
   //        FPCLines.SaveToStream(FS);
@@ -394,19 +390,18 @@ var
   //        FS.Free;
   //      end;
 
-  //      Writeln('Generated ', ConfigFile, ' with ', FPCLines.Count, ' paths.');
+  //      writeln('Generated ', ConfigFile, ' with ', FPCLines.Count, ' paths.');
   //    finally
   //      FPCLines.Free;
   //      Keys.Free;
   //      LockData.Free;
-  //      JSONData.Free;
   //    end;
   //  end;
 
   //  procedure RemovePackage(const Repo: string);
   //  var
   //    LockDeps: TJSONObject;
-  //    JSONData, RequireObj, DevObj: TJSONObject;
+  //    RequireObj, DevObj: TJSONObject;
   //    Path: string;
   //    Removed: boolean;
   //  begin
@@ -419,24 +414,21 @@ var
   //      begin
   //        LockDeps.Remove(LockDeps.Find(Repo));
   //        save_json(LOCK_FILE, LockDeps);
-  //        Writeln('Removed "', Repo, '" from lock file.');
+  //        writeln('Removed "', Repo, '" from lock file.');
   //        Removed := True;
   //      end;
   //    finally
   //      LockDeps.Free;
   //    end;
 
-  //    // --- Update nova.json ---
-  //    JSONData := create_or_load_json(DEP_FILE);
-  //    try
-  //      RequireObj := TJSONObject(JSONData.FindPath('require'));
+  //      RequireObj := TJSONObject(jsonReq.FindPath('require'));
   //      if Assigned(RequireObj) and (RequireObj.IndexOfName(Repo) <> -1) then
   //      begin
   //        RequireObj.Remove(RequireObj.Find(Repo));
   //        Removed := True;
   //      end;
 
-  //      DevObj := TJSONObject(JSONData.FindPath('require-dev'));
+  //      DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
   //      if Assigned(DevObj) and (DevObj.IndexOfName(Repo) <> -1) then
   //      begin
   //        DevObj.Remove(DevObj.Find(Repo));
@@ -445,12 +437,9 @@ var
 
   //      if Removed then
   //      begin
-  //        save_json(DEP_FILE, JSONData);
-  //        Writeln('Removed "', Repo, '" from nova.json.');
+  //        save_json(DEP_FILE, jsonReq);
+  //        writeln('Removed "', Repo, '" from nova.json.');
   //      end;
-  //    finally
-  //      JSONData.Free;
-  //    end;
 
   //    // --- Remove vendor folder ---
   //    Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/',
@@ -462,11 +451,11 @@ var
   //      {$ELSE}
   //      run_and_capture('rm', ['-rf', Path]);
   //      {$ENDIF}
-  //      Writeln('Deleted vendor files for "', Repo, '".');
+  //      writeln('Deleted vendor files for "', Repo, '".');
   //    end;
 
   //    if not Removed then
-  //      Writeln('Package "', Repo, '" was not found.')
+  //      writeln('Package "', Repo, '" was not found.')
   //    else
   //    begin
   //      GenerateFPCConfig('fpc.cfg', VENDOR_DIR, VENDOR_DIR + PathDelim + BIN_DIR);
@@ -526,7 +515,7 @@ var
   //    if package_exists(jsonReq, 'require', packageName) or
   //      package_exists(jsonReq, 'require-dev', packageName) then
   //    begin
-  //      Writeln('Package "', packageName, '" is already present. Skipping.');
+  //      writeln('Package "', packageName, '" is already present. Skipping.');
   //      exit;
   //    end;
 
@@ -565,7 +554,7 @@ var
 
   //    save_json(DEP_FILE, jsonReq);
 
-  //    Writeln('Using version ', FinalConstraint, ' for ', packageName);
+  //    writeln('Using version ', FinalConstraint, ' for ', packageName);
   //  end;
 
   //  procedure CollectKeys(Obj: TJSONObject; var pkgs: TFPList; includeDev: boolean);
@@ -613,12 +602,12 @@ var
 
   //      if not matches_constraint(Version, Constraint) then
   //      begin
-  //        Writeln('❌ Conflict: Package "', Repo,
+  //        writeln('❌ Conflict: Package "', Repo,
   //          '" could not satisfy constraint "', Constraint, '".');
   //        Halt(1);
   //      end;
 
-  //      Writeln('✓ ', Repo, ' resolved to ', Resolved,
+  //      writeln('✓ ', Repo, ' resolved to ', Resolved,
   //        ' (constraint ', Constraint, ')');
 
   //      // Path to vendor folder
@@ -629,7 +618,7 @@ var
   //      // If package not yet fetched, clone temporarily for metadata
   //      if not FileExists(DepFile) then
   //      begin
-  //        Writeln('Fetching metadata for ', Repo, '...');
+  //        writeln('Fetching metadata for ', Repo, '...');
   //        //GitCloneOrUpdate(Repo, Resolved, DepPath);
   //      end;
 
@@ -681,7 +670,7 @@ var
   //  begin
   //    if not FileExists(DEP_FILE) then
   //    begin
-  //      Writeln('No ', DEP_FILE, ' found. Nothing to resolve.');
+  //      writeln('No ', DEP_FILE, ' found. Nothing to resolve.');
   //      Exit;
   //    end;
 
@@ -703,11 +692,11 @@ var
 
   //      if packages.Count = 0 then
   //      begin
-  //        Writeln('No dependencies found in ', DEP_FILE, '.');
+  //        writeln('No dependencies found in ', DEP_FILE, '.');
   //        halt(1);
   //      end;
 
-  //      Writeln('Resolving dependencies recursively...');
+  //      writeln('Resolving dependencies recursively...');
 
   //      for I := 0 to packages.Count - 1 do
   //      begin
@@ -717,14 +706,14 @@ var
   //        ResolvePackage(Repo, Constraint, includeDev);
   //      end;
 
-  //      Writeln('All dependencies resolved successfully.');
+  //      writeln('All dependencies resolved successfully.');
   //    finally
   //      RootJson.Free;
   //      Visited.Free;
   //    end;
   //  end;
 
-  //  // Write resolved versions into nova.lock
+  //  // write resolved versions into nova.lock
   //  procedure UpdateNovaLock(const Packages: TFPList; includeDev: boolean);
   //  var
   //    LockObj, DepObj: TJSONObject;
@@ -755,7 +744,7 @@ var
   //  // Extract into vendor/
   //  procedure nova_install_packages(packageFile, versionConstraint: string; includeDev: boolean);
   //  var
-  //    JSONData, Section: TJSONObject;
+  //    Section: TJSONObject;
   //    i: integer;
   //    repo, constraint, pathVal: string;
   //    version: TVersion;
@@ -779,23 +768,18 @@ var
   //        subPkgFile := p + PathDelim + 'nova.json';
   //        if FileExists(subPkgFile) then
   //        begin
-  //          Writeln('Found nested nova.json in ', pathVal, ', installing dependencies...');
+  //          writeln('Found nested nova.json in ', pathVal, ', installing dependencies...');
   //          nova_require(subPkgFile,  includeDev); // recursive call
   //        end;
   //      end;
   //    end;
 
   //  begin
-  //    JSONData := create_or_load_json(packageFile);
-  //    try
   //      // Process "require" section
-  //      ProcessSection(TJSONObject(JSONData.FindPath('require')));
+  //      ProcessSection(TJSONObject(jsonReq.FindPath('require')));
   //      // Process "require-dev" if requested
   //      if includeDev then
-  //        ProcessSection(TJSONObject(JSONData.FindPath('require-dev')));
-  //    finally
-  //      JSONData.Free;
-  //    end;
+  //        ProcessSection(TJSONObject(jsonReq.FindPath('require-dev')));
   //  end;
 
   //  procedure RegenerateFPCcfg();
@@ -895,8 +879,8 @@ var
     Description: string;
     AuthorName: string;
   begin
-    Writeln('This command will guide you through creating you ', DEP_FILE, ' config.');
-    Writeln;
+    writeln('This command will guide you through creating you ', DEP_FILE, ' config.');
+    writeln;
 
     Write('Package name (<vendor>/<name>) [', default_package_name, ']: ');
     ReadLn(PackageName);
@@ -933,31 +917,34 @@ var
       JsonObj.Add('bin', TJSONArray.Create);
 
       save_json(DEP_FILE, JsonObj);
-      Writeln('Created ', DEP_FILE, ' with basic information.');
+      writeln('Created ', DEP_FILE, ' with basic information.');
     finally
       JsonObj.Free;
     end;
 
-    Writeln('You can now run `nova require <vendor/package>` to add dependencies.');
+    writeln('You can now run `nova require <vendor/package>` to add dependencies.');
   end;
 
-  procedure PrintUsage;
+  procedure print_usage;
   begin
-    Writeln('Nova v1.0.0'); // dynamically insert version number
-    Writeln('Usage: nova [options ...] [package[:version] ...]');
+    writeln('Nova v', NOVA_VERSION);
+    writeln('Copyright (c) 2025 by Darius Blaszyk');
+    writeln('Usage: nova <command> [options] [package[:version] ...]');
+    writeln;
 
-    Writeln;
-    Writeln('Available commands:');
-    Writeln('  init                Initialize a new project');
-    Writeln('  require <packages>  Add one or more packages to nova.json');
-    Writeln('  remove <packages>   Remove one or more packages from nova.json and vendor');
-    Writeln('  install             Install all dependencies from nova.json');
-    Writeln('  self-update         Update the nova executable to latest version');
+    writeln('Available commands:');
+    writeln('  init                 Initialize a new project interactively');
+    writeln('  require <packages>   Add one or more packages to nova.json');
+    writeln('  remove <packages>    Remove one or more packages from nova.json and vendor');
+    writeln('  install              Install all dependencies from nova.json and update nova.lock');
+    writeln('  show                 Show installed packages and their versions');
+    writeln('  tree                 Show installed packages as a dependency tree');
+    writeln('  self-update          Update the nova executable to the latest version');
+    writeln;
 
-    Writeln;
-    Writeln('Options:');
-    Writeln('  --dev               Include packages as development dependencies');
-    Writeln('  -h, --help          Display this help message');
+    writeln('Options:');
+    writeln('  --dev                Include packages as development dependencies');
+    writeln('  -h, --help           Display this help message');
     halt(1);
   end;
 
@@ -989,10 +976,10 @@ var
     jsonPkg: TJSONObject;
   begin
     //skip if package is already found
-    if package_exists(jsonReq, 'require', packageName) or
-      package_exists(jsonReq, 'require-dev', packageName) then
+    if package_exists('require', packageName) or
+      package_exists('require-dev', packageName) then
     begin
-      Writeln('Package "', packageName, '" is already present. Skipping.');
+      writeln('Package "', packageName, '" is already present. Skipping.');
       exit;
     end;
 
@@ -1031,7 +1018,7 @@ var
 
     save_json(DEP_FILE, jsonReq);
 
-    Writeln('Using version ', FinalConstraint, ' for ', packageName);
+    writeln('Using version ', FinalConstraint, ' for ', packageName);
   end;
 
   procedure read_lock_file(jsonLock: TJSONObject; var Packages: TFPList);
@@ -1083,148 +1070,152 @@ var
   end;
 
   procedure internal_install_packages(const fname: string; pkgs: TFPList);
-    //procedure internal_install_packages(const fname: string; pkgs: TFPList; includeDev: boolean = False);
-    var
-      RequireObj, DevObj: TJSONObject;
-      i: Integer;
-      repo, constraint, path: string;
-      version: TVersion;
-      pkg: PPackage;
-      j: Integer;
-      found, compatible: Boolean;
-      SubNova: string;
+  //procedure internal_install_packages(const fname: string; pkgs: TFPList; includeDev: boolean = False);
+  var
+    RequireObj, DevObj: TJSONObject;
+    i: integer;
+    repo, constraint, path: string;
+    version: TVersion;
+    pkg: PPackage;
+    j: integer;
+    found, compatible: boolean;
+    SubNova: string;
+  begin
+    // --- process require
+    RequireObj := TJSONObject(jsonReq.FindPath('require'));
+    if RequireObj <> nil then
     begin
-        // --- process require
-        RequireObj := TJSONObject(jsonReq.FindPath('require'));
-        if RequireObj <> nil then
+      for i := 0 to RequireObj.Count - 1 do
+      begin
+        repo := RequireObj.Names[i];
+        constraint := RequireObj.Items[i].AsString;
+        found := False;
+        compatible := False;
+
+        // Look in existing pkgs (lockfile list)
+        for j := 0 to pkgs.Count - 1 do
         begin
-          for i := 0 to RequireObj.Count - 1 do
+          pkg := PPackage(pkgs.Items[j]);
+          if (pkg^.Name = repo) then
           begin
-            repo := RequireObj.Names[i];
-            constraint := RequireObj.Items[i].AsString;
-            found := False;
-            compatible := False;
-
-            // Look in existing pkgs (lockfile list)
-            for j := 0 to pkgs.Count - 1 do
+            found := True;
+            if matches_constraint(pkg^.Version, constraint) then
             begin
-              pkg := PPackage(pkgs.Items[j]);
-              if (pkg^.Name = repo) then
+              compatible := True;
+              if not pkg^.Installed then
               begin
-                found := True;
-                if matches_constraint(pkg^.Version, constraint) then
-                begin
-                  compatible := True;
-                  if not pkg^.Installed then
-                  begin
-                    pkg^.Installed := True;
-                    // Recursively check subdependencies
-                    SubNova := VENDOR_DIR + PathDelim +
-                      StringReplace(repo, '/', PathDelim, [rfReplaceAll]) +
-                      PathDelim + 'nova.json';
-                    if FileExists(SubNova) then
-                      internal_install_packages(SubNova, pkgs);
-                  end;
-                end;
-                Break;
-              end;
-            end;
-
-            if found and (not compatible) then
-            begin
-              Writeln('Version conflict for package ', repo, ' with constraint ', constraint);
-              Halt(1);
-            end;
-
-            if not found then
-            begin
-              // Resolve and install
-              version := resolve_version(repo, constraint);
-              path := VENDOR_DIR + PathDelim + StringReplace(repo, '/', PathDelim, [rfReplaceAll]);
-              git_clone_or_update(repo, path, version);
-
-              New(pkg);
-              pkg^.Name := repo;
-              pkg^.Constraint := constraint;
-              pkg^.Version := version;
-              pkg^.Hash := version.Hash;
-              pkg^.includeDev := False;
-              pkg^.Installed := True;
-              pkgs.Add(pkg);
-
-              // Recursively check subdependencies
-              SubNova := path + PathDelim + 'nova.json';
-              if FileExists(SubNova) then
-                internal_install_packages(SubNova, pkgs);
-            end;
-          end;
-        end;
-
-        // --- process require-dev (only if includeDev = True)
-        if includeDev then
-        begin
-          DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
-          if DevObj <> nil then
-          begin
-            for i := 0 to DevObj.Count - 1 do
-            begin
-              repo := DevObj.Names[i];
-              constraint := DevObj.Items[i].AsString;
-              found := False;
-              compatible := False;
-
-              for j := 0 to pkgs.Count - 1 do
-              begin
-                pkg := PPackage(pkgs.Items[j]);
-                if (pkg^.Name = repo) then
-                begin
-                  found := True;
-                  if matches_constraint(pkg^.Version, constraint) then
-                  begin
-                    compatible := True;
-                    if not pkg^.Installed then
-                    begin
-                      pkg^.Installed := True;
-                      SubNova := VENDOR_DIR + PathDelim +
-                        StringReplace(repo, '/', PathDelim, [rfReplaceAll]) +
-                        PathDelim + 'nova.json';
-                      if FileExists(SubNova) then
-                        internal_install_packages(SubNova, pkgs);
-                    end;
-                  end;
-                  Break;
-                end;
-              end;
-
-              if found and (not compatible) then
-              begin
-                Writeln('Version conflict for dev package ', repo, ' with constraint ', constraint);
-                Halt(1);
-              end;
-
-              if not found then
-              begin
-                version := resolve_version(repo, constraint);
-                path := VENDOR_DIR + PathDelim + StringReplace(repo, '/', PathDelim, [rfReplaceAll]);
-                git_clone_or_update(repo, path, version);
-
-                New(pkg);
-                pkg^.Name := repo;
-                pkg^.Constraint := constraint;
-                pkg^.Version := version;
-                pkg^.Hash := version.Hash;
-                pkg^.includeDev := True;
                 pkg^.Installed := True;
-                pkgs.Add(pkg);
-
-                SubNova := path + PathDelim + 'nova.json';
+                // Recursively check subdependencies
+                SubNova :=
+                  VENDOR_DIR + PathDelim + StringReplace(repo,
+                  '/', PathDelim, [rfReplaceAll]) + PathDelim + 'nova.json';
                 if FileExists(SubNova) then
                   internal_install_packages(SubNova, pkgs);
               end;
             end;
+            Break;
           end;
         end;
+
+        if found and (not compatible) then
+        begin
+          writeln('Version conflict for package ', repo,
+            ' with constraint ', constraint);
+          Halt(1);
+        end;
+
+        if not found then
+        begin
+          // Resolve and install
+          version := resolve_version(repo, constraint);
+          path := VENDOR_DIR + PathDelim + StringReplace(repo,
+            '/', PathDelim, [rfReplaceAll]);
+          git_clone_or_update(repo, path, version);
+
+          New(pkg);
+          pkg^.Name := repo;
+          pkg^.Constraint := constraint;
+          pkg^.Version := version;
+          pkg^.Hash := version.Hash;
+          pkg^.includeDev := False;
+          pkg^.Installed := True;
+          pkgs.Add(pkg);
+
+          // Recursively check subdependencies
+          SubNova := path + PathDelim + 'nova.json';
+          if FileExists(SubNova) then
+            internal_install_packages(SubNova, pkgs);
+        end;
+      end;
     end;
+
+    // --- process require-dev (only if includeDev = True)
+    if includeDev then
+    begin
+      DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
+      if DevObj <> nil then
+      begin
+        for i := 0 to DevObj.Count - 1 do
+        begin
+          repo := DevObj.Names[i];
+          constraint := DevObj.Items[i].AsString;
+          found := False;
+          compatible := False;
+
+          for j := 0 to pkgs.Count - 1 do
+          begin
+            pkg := PPackage(pkgs.Items[j]);
+            if (pkg^.Name = repo) then
+            begin
+              found := True;
+              if matches_constraint(pkg^.Version, constraint) then
+              begin
+                compatible := True;
+                if not pkg^.Installed then
+                begin
+                  pkg^.Installed := True;
+                  SubNova :=
+                    VENDOR_DIR + PathDelim + StringReplace(repo,
+                    '/', PathDelim, [rfReplaceAll]) + PathDelim + 'nova.json';
+                  if FileExists(SubNova) then
+                    internal_install_packages(SubNova, pkgs);
+                end;
+              end;
+              Break;
+            end;
+          end;
+
+          if found and (not compatible) then
+          begin
+            writeln('Version conflict for dev package ', repo,
+              ' with constraint ', constraint);
+            Halt(1);
+          end;
+
+          if not found then
+          begin
+            version := resolve_version(repo, constraint);
+            path := VENDOR_DIR + PathDelim + StringReplace(repo,
+              '/', PathDelim, [rfReplaceAll]);
+            git_clone_or_update(repo, path, version);
+
+            New(pkg);
+            pkg^.Name := repo;
+            pkg^.Constraint := constraint;
+            pkg^.Version := version;
+            pkg^.Hash := version.Hash;
+            pkg^.includeDev := True;
+            pkg^.Installed := True;
+            pkgs.Add(pkg);
+
+            SubNova := path + PathDelim + 'nova.json';
+            if FileExists(SubNova) then
+              internal_install_packages(SubNova, pkgs);
+          end;
+        end;
+      end;
+    end;
+  end;
 
 
   procedure nova_install_packages;
@@ -1251,6 +1242,115 @@ var
     pkgs.Free;
   end;
 
+  procedure print_dependency_tree(const Repo: string; const Prefix: string;
+    isDev: boolean);
+  var
+    Path, DepFile: string;
+    JSONData, RequireObj, DevObj: TJSONObject;
+    i: integer;
+    ChildRepo, Constraint: string;
+  begin
+    Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/', PathDelim, [rfReplaceAll]);
+    DepFile := Path + PathDelim + DEP_FILE;
+
+    if not FileExists(DepFile) then Exit;
+
+    JSONData := create_or_load_json(DepFile);
+    RequireObj := TJSONObject(JSONData.FindPath('require'));
+    if RequireObj <> nil then
+      for i := 0 to RequireObj.Count - 1 do
+      begin
+        ChildRepo := RequireObj.Names[i];
+        Constraint := RequireObj.Items[i].AsString;
+        writeln(Prefix, '└─ ', ChildRepo, ' ', Constraint);
+        print_dependency_tree(ChildRepo, Prefix + '   ', False);
+      end;
+
+    if isDev then
+    begin
+      DevObj := TJSONObject(JSONData.FindPath('require-dev'));
+      if DevObj <> nil then
+        for i := 0 to DevObj.Count - 1 do
+        begin
+          ChildRepo := DevObj.Names[i];
+          Constraint := DevObj.Items[i].AsString;
+          writeln(Prefix, '└─ [dev] ', ChildRepo, ' ', Constraint);
+          print_dependency_tree(ChildRepo, Prefix + '   ', True);
+        end;
+    end;
+
+    JSONData.Free;
+  end;
+
+  procedure nova_list(showTree: boolean);
+  var
+    LockJson: TJSONObject;
+    RequireObj, DevObj: TJSONObject;
+    Repo, Constraint, Version, Commit: string;
+    LockPkg: TJSONObject;
+    i: integer;
+
+    procedure print_section(Obj: TJSONObject; isDev: boolean);
+    var
+      j: integer;
+    begin
+      if Obj = nil then Exit;
+      for j := 0 to Obj.Count - 1 do
+      begin
+        Repo := Obj.Names[j];
+        Constraint := Obj.Items[j].AsString;
+
+        LockPkg := TJSONObject(LockJson.FindPath(Repo));
+        if LockPkg <> nil then
+        begin
+          Version := LockPkg.Get('version', '');
+          Commit := '(' + LockPkg.Get('commit', '') + ')';
+        end
+        else
+        begin
+          Version := '(not installed)';
+          Commit := '';
+        end;
+
+        if isDev then
+          writeln('* [dev] ', Repo: 30, ' ', Constraint: 10, ' → ',
+            Version, ' ', Commit)
+        else
+          writeln('* ', Repo: 30, ' ', Constraint: 10, ' → ', Version, ' ', Commit);
+
+        if showTree then
+          print_dependency_tree(Repo, '   ', isDev);
+      end;
+    end;
+
+  begin
+    if not FileExists(DEP_FILE) then
+    begin
+      writeln('No ', DEP_FILE, ' found. Run "nova init" first.');
+      Exit;
+    end;
+
+    if FileExists(LOCK_FILE) then
+      LockJson := create_or_load_json(LOCK_FILE)
+    else
+      LockJson := TJSONObject.Create;
+
+    try
+      writeln('Installed packages:');
+      writeln;
+
+      RequireObj := TJSONObject(jsonReq.FindPath('require'));
+      print_section(RequireObj, False);
+
+      DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
+      print_section(DevObj, True);
+
+      writeln;
+    finally
+      LockJson.Free;
+    end;
+  end;
+
 var
   Cmd: string;
   i: integer;
@@ -1262,7 +1362,7 @@ begin
       isHelp := True;
 
   if (ParamCount < 1) or isHelp then
-    PrintUsage;
+    print_usage;
 
   // --- Load or create dependency file ---
   jsonReq := create_or_load_json(DEP_FILE);
@@ -1277,7 +1377,7 @@ begin
   if Cmd = 'require' then
   begin
     if ParamCount < 2 then
-      Writeln('Please specify package(s) to require.')
+      writeln('Please specify package(s) to require.')
     else
     begin
       for i := 2 to ParamCount do
@@ -1296,7 +1396,7 @@ begin
   //  else if Cmd = 'remove' then
   //  begin
   //    if ParamCount < 2 then
-  //      Writeln('Please specify package(s) to remove.')
+  //      writeln('Please specify package(s) to remove.')
   //    else
   //    begin
   //      for i := 2 to ParamCount do
@@ -1313,11 +1413,20 @@ begin
     initialize_nova_package
   else if Cmd = 'install' then
     nova_install_packages
+  else if Cmd = 'show' then
+    nova_list(False)
+  else if Cmd = 'tree' then
+    nova_list(True)
   //  else if (Cmd = 'self-update') or (Cmd = 'selfupdate') then
   //    SelfUpdate
   else
-    Writeln('Unknown command: ', Cmd);
+  begin
+    jsonReq.Free;
+    writeln('Unknown command: ', Cmd);
+    writeln;
+    print_usage;
+  end;
 
   jsonReq.Free;
-  Writeln('done.');
+  writeln('done.');
 end.
