@@ -424,34 +424,31 @@ var
     save_json(LOCK_FILE, jsonLock);
   end;
 
-  procedure internal_remove_package(const Repo: string);
+  function internal_remove_package(const Repo: string): boolean;
   var
-    Removed: boolean;
+    removed: boolean = False;
     RequireObj, DevObj: TJSONObject;
   begin
-    Removed := False;
-
     RequireObj := TJSONObject(jsonReq.FindPath('require'));
     if Assigned(RequireObj) and (RequireObj.IndexOfName(Repo) <> -1) then
     begin
       RequireObj.Remove(RequireObj.Find(Repo));
-      Removed := True;
+      removed := True;
     end;
 
     DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
     if Assigned(DevObj) and (DevObj.IndexOfName(Repo) <> -1) then
     begin
       DevObj.Remove(DevObj.Find(Repo));
-      Removed := True;
+      removed := True;
     end;
 
-    if Removed then
-    begin
-      save_json(DEP_FILE, jsonReq);
-      writeln('Removed "', Repo, '" from ', DEP_FILE);
-    end
+    if removed then
+      writeln('Removed "', Repo, '" from ', DEP_FILE)
     else
       writeln('Package "', Repo, '" was not found.');
+
+    exit(removed);
   end;
 
   function default_package_name: string;
@@ -638,7 +635,7 @@ var
       package_exists('require-dev', packageName) then
     begin
       writeln('Package "', packageName, '" is already present. Skipping.');
-      exit(false);
+      exit(False);
     end;
 
     // Determine versionConstraint
@@ -675,7 +672,7 @@ var
     jsonPkg.Add(packageName, FinalConstraint);
 
     writeln('Using version ', FinalConstraint, ' for ', packageName);
-    exit(true);
+    exit(True);
   end;
 
   procedure internal_install_packages(const fname: string; pkgs: TFPList;
@@ -959,17 +956,6 @@ var
     JSONData.Free;
   end;
 
-  procedure nova_remove_packages(const includeDev: boolean);
-  var
-    i: integer;
-  begin
-    // Run internal remove package procedure
-    for i := 2 to argc do
-      internal_remove_package(argv[i]);
-
-    nova_install_packages(includeDev);
-  end;
-
   procedure nova_list(showTree: boolean);
   var
     LockJson: TJSONObject;
@@ -1092,10 +1078,10 @@ var
 
   procedure CmdRequire(cmd: pCommand);
   var
-    i: integer;
+    i:     integer;
     package, version: string;
     includeDev: boolean;
-    found: boolean;
+    added: boolean = False;
   begin
     if argc < 2 then
     begin
@@ -1115,23 +1101,34 @@ var
         split_package_spec(argv[i], package, version);
 
         if nova_require(package, version, includeDev) then
-          found := True;
+          added := True;
       end;
     end;
 
-    if found then
+    if added then
     begin
       save_json(DEP_FILE, jsonReq);
-      writeln('Execute `nova install [--dev]` to install dependencies and complete setup.');
+      writeln('Run `nova install [--dev]` to install dependencies and complete setup.');
     end;
   end;
 
   procedure CmdRemove(cmd: pCommand);
+  var
+    i: integer;
+    removed: boolean;
   begin
     if argc < 2 then
       writeln('Please specify package(s) to remove.')
     else
-      nova_remove_packages(False);
+      for i := 2 to argc do
+        if (argv[i] <> '') and internal_remove_package(argv[i]) then
+            removed := True;
+
+    if removed then
+    begin
+      save_json(DEP_FILE, jsonReq);
+      writeln('Run `nova install [--dev]` to update and clean up dependencies.');
+    end;
   end;
 
   procedure CmdInstall(cmd: pCommand);
