@@ -4,31 +4,48 @@ program nova;
 
 uses
   {$IFDEF WINDOWS}Windows,{$ENDIF}
-  SysUtils,
   Classes,
   fpjson,
   jsonparser,
-  process;
+  process,
+  SysUtils;
 
 const
   NOVA_VERSION = '1.0.0';
-  VENDOR_DIR = 'vendor';
-  LOCK_FILE = 'nova.lock';
-  DEP_FILE = 'nova.json';
-  BIN_DIR = 'bin';
-  FPC_CONFIG = 'fpc.cfg';
+  VENDOR_DIR   = 'vendor';
+  LOCK_FILE    = 'nova.lock';
+  DEP_FILE     = 'nova.json';
+  BIN_DIR      = 'bin';
+  FPC_CONFIG   = 'fpc.cfg';
 
 type
+  pOption = ^TOption;
+
+  TOption = record
+    name: string;
+    description: string;
+  end;
+
+  pCommand = ^TCommand;
+  TCommandproc = procedure(cmd: pCommand);
+
+  TCommand = record
+    name: string;
+    proc: TCommandproc;
+    description: string;
+    options: TFPList; // List of pOption
+  end;
+
   TVersion = record
     Major, Minor, Patch: integer;
     hash: string;
-    Name: string;
+    name: string;
   end;
 
   pPackage = ^TPackage;
 
   TPackage = record
-    Name: string;           // e.g. "laravel/pint"
+    name: string;           // e.g. "laravel/pint"
     constraint: string;     // e.g. "^1.24"
     version: TVersion;      // resolved version, e.g. "1.24.0"
     hash: string;           // commit hash after cloning
@@ -37,11 +54,36 @@ type
   end;
 
 var
-  jsonReq: TJSONObject;
-  includeDev: boolean = False;
-
+  Commands: TFPList;
+  jsonReq:  TJSONObject;
 
   { ------------------ Helper Functions ------------------ }
+
+  procedure FreeCommands;
+  var
+    i, j: integer;
+    cmd:  pCommand;
+  begin
+    if Commands <> nil then
+    begin
+      for i := 0 to Commands.Count - 1 do
+      begin
+        cmd := pCommand(Commands[i]);
+
+        // Free options linked to this command
+        if cmd^.options <> nil then
+        begin
+          for j := 0 to cmd^.options.Count - 1 do
+            Dispose(pOption(cmd^.options[j]));
+          cmd^.options.Free;
+        end;
+
+        Dispose(cmd);
+      end;
+
+      FreeAndNil(Commands);
+    end;
+  end;
 
   function run_and_capture(const Cmd: string; const Args: array of string): string;
   var
@@ -79,7 +121,7 @@ var
     Result.Minor := 0;
     Result.Patch := 0;
 
-    Result.Name := S;
+    Result.name := S;
 
     Clean := S;
     if (Length(Clean) > 0) and (Clean[1] = 'v') then
@@ -104,19 +146,19 @@ var
 
   function compare_versions(const A, B: TVersion): integer;
   begin
-    if A.Major <> B.Major then Exit(A.Major - B.Major);
-    if A.Minor <> B.Minor then Exit(A.Minor - B.Minor);
+    if A.Major <> B.Major then exit(A.Major - B.Major);
+    if A.Minor <> B.Minor then exit(A.Minor - B.Minor);
     Result := A.Patch - B.Patch;
   end;
 
   function matches_constraint(const Ver: TVersion; const Constraint: string): boolean;
   var
-    Num: string;
+    Num:  string;
     CVer: TVersion;
   begin
     Result := False;
     if Constraint = '' then
-      Exit(True);
+      exit(True);
 
     if Pos('^', Constraint) = 1 then
     begin
@@ -154,9 +196,9 @@ var
 
   function resolve_version(const Repo, Constraint: string): TVersion;
   var
-    Tags: string;
+    Tags:  string;
     Lines: TStringList;
-    I: integer;
+    I:     integer;
     Candidate, Best: string;
     CandidateVer, BestVer: TVersion;
   begin
@@ -167,22 +209,18 @@ var
     try
       Lines.Text := Tags;
       for I := 0 to Lines.Count - 1 do
-      begin
         if Pos('refs/tags/', Lines[I]) > 0 then
         begin
           Candidate := Copy(Lines[I], Pos('refs/tags/', Lines[I]) + 10, MaxInt);
           CandidateVer := parse_version(Candidate);
           CandidateVer.hash := Trim(Copy(Lines[I], 1, Pos(#9, Lines[I]) - 1));
           if matches_constraint(CandidateVer, Constraint) then
-          begin
             if (Best = '') or (compare_versions(CandidateVer, BestVer) > 0) then
             begin
               Best := Candidate;
               BestVer := CandidateVer;
             end;
-          end;
         end;
-      end;
 
       if Best <> '' then Result := BestVer
       else
@@ -197,7 +235,6 @@ var
   //    Result := Format('%d.%d.%d', [version.Major, version.Minor, version.Patch]);
   //  end;
 
-
   procedure git_clone_or_update(const Repo, Path: string; const ver: TVersion);
   begin
     if DirectoryExists(Path) then
@@ -210,7 +247,7 @@ var
     end
     else
     begin
-      writeln('Cloning ', Repo, '@', ver.Name, '...');
+      writeln('Cloning ', Repo, '@', ver.name, '...');
       // Clone the repository (full history required to checkout a commit hash)
       run_and_capture('git', ['clone', 'https://github.com/' + Repo + '.git', Path]);
       // Checkout the exact commit hash
@@ -223,7 +260,7 @@ var
   procedure save_json(const FName: string; jData: TJSONObject);
   var
     FS: TFileStream;
-    S: ansistring;
+    S:  ansistring;
   begin
     FS := TFileStream.Create(FName, fmCreate);
     try
@@ -280,7 +317,7 @@ var
 
   procedure write_fpc_config(packages: TFPList);
   var
-    I: integer;
+    I:   integer;
     pkg: pPackage;
     PathVal: string;
     FPCLines: TStringList;
@@ -323,7 +360,7 @@ var
         if pkg^.installed then
         begin
           PathVal := IncludeTrailingPathDelimiter(VENDOR_DIR) +
-            StringReplace(pkg^.Name, '/', PathDelim, [rfReplaceAll]);
+            StringReplace(pkg^.name, '/', PathDelim, [rfReplaceAll]);
           FPCLines.Add('-Fu ' + PathVal);
         end;
       end;
@@ -339,7 +376,7 @@ var
   procedure read_lock_file(jsonLock: TJSONObject; var Packages: TFPList);
   var
     LockObj: TJSONObject;
-    i: integer;
+    i:   integer;
     pkg: pPackage;
   begin
     Packages.Clear;
@@ -350,7 +387,7 @@ var
       if LockObj = nil then Continue;
 
       New(pkg);
-      pkg^.Name := jsonLock.Names[i];
+      pkg^.name := jsonLock.Names[i];
       pkg^.Constraint := LockObj.Get('constraint', '');
       pkg^.Version := parse_version(LockObj.Get('version', '0.0.0'));
       pkg^.Hash := LockObj.Get('hash', '');
@@ -363,8 +400,8 @@ var
   procedure write_lock_file(jsonLock: TJSONObject; Packages: TFPList);
   var
     PkgObj: TJSONObject;
-    i: integer;
-    pkg: pPackage;
+    i:      integer;
+    pkg:    pPackage;
   begin
     jsonLock.Clear;
 
@@ -376,11 +413,11 @@ var
       begin
         PkgObj := TJSONObject.Create;
         PkgObj.Add('constraint', pkg^.Constraint);
-        PkgObj.Add('version', pkg^.Version.Name);
+        PkgObj.Add('version', pkg^.Version.name);
         PkgObj.Add('hash', pkg^.Hash);
         PkgObj.Add('dev', pkg^.includeDev);
 
-        jsonLock.Add(pkg^.Name, PkgObj);
+        jsonLock.Add(pkg^.name, PkgObj);
       end;
     end;
 
@@ -474,12 +511,13 @@ var
     Result := FullName + ' <' + Email + '>';
   end;
 
-  procedure initialize_nova_package;
+  // TODO: Replace ReadLn with a full-featured line editor library to support backspace, cursor navigation, and interactive input.
+  procedure CmdInit(cmd: pCommand);
   var
-    JsonObj: TJSONObject;
+    JsonObj:     TJSONObject;
     PackageName, Version, License: string;
-    Description: string;
-    AuthorName: string;
+    description: string;
+    AuthorName:  string;
   begin
     writeln('This command will guide you through creating you ', DEP_FILE, ' config.');
     writeln;
@@ -490,7 +528,7 @@ var
       PackageName := default_package_name;
 
     Write('Description []: ');
-    ReadLn(Description);
+    ReadLn(description);
 
     Write('Author [', default_author, ']: ');
     ReadLn(AuthorName);
@@ -513,7 +551,7 @@ var
       JsonObj.Add('version', Version);
       JsonObj.Add('license', License);
       JsonObj.Add('author', AuthorName);
-      JsonObj.Add('description', Description);
+      JsonObj.Add('description', description);
       JsonObj.Add('require', TJSONObject.Create);
       JsonObj.Add('require-dev', TJSONObject.Create);
       JsonObj.Add('bin', TJSONArray.Create);
@@ -527,35 +565,49 @@ var
     writeln('You can now run `nova require <vendor/package>` to add dependencies.');
   end;
 
-  procedure print_usage;
+  procedure print_version;
   begin
-    writeln('Nova v', NOVA_VERSION);
+    writeln('nova v', NOVA_VERSION);
+  end;
+
+  procedure print_usage;
+  var
+    i, j: integer;
+    cmd:  pCommand;
+    opt:  pOption;
+  begin
+    print_version;
     writeln('Copyright (c) 2025 by Darius Blaszyk');
     writeln('Usage: nova <command> [options] [package[:version] ...]');
     writeln;
 
     writeln('Available commands:');
-    writeln('  init                 Initialize a new project interactively');
-    writeln('  require <packages>   Add one or more packages to ', DEP_FILE);
-    writeln('  remove <packages>    Remove one or more packages from ',
-      DEP_FILE, ' and vendor');
-    writeln('  install              Install all dependencies from ',
-      DEP_FILE, ' and update ', LOCK_FILE);
-    writeln('  update               Updates your dependencies to the latest version according to ',
-      DEP_FILE, ', and updates the ', LOCK_FILE, ' file');
-    writeln('  show                 Show installed packages and their versions');
-    writeln('  tree                 Show installed packages as a dependency tree');
-    writeln('  self-update          Update the nova executable to the latest version');
-    writeln;
+    for i := 0 to Commands.Count - 1 do
+    begin
+      cmd := pCommand(Commands[i]);
+      writeln(Format('  %-15s %s', [cmd^.name, cmd^.description]));
 
-    writeln('Options:');
-    writeln('  --dev                Include packages as development dependencies');
-    writeln('  -h, --help           Display this help message');
-    halt(1);
+      for j := 0 to cmd^.options.Count - 1 do
+      begin
+        opt := pOption(cmd^.options[j]);
+        writeln(Format('    %-13s %s', [opt^.name, opt^.description]));
+      end;
+    end;
+
+    writeln;
+    writeln('Global options:');
+    writeln(Format('  %-15s %s', ['-h, --help', 'Display this help message']));
+    writeln(Format('  %-15s %s', ['-v, --version', 'Show nova version']));
+    writeln;
+    writeln('Examples:');
+    writeln('  nova init');
+    writeln('  nova require daar/linkedlist');
+    writeln('  nova require daar/linkedlist:1.0.0 --dev');
+    writeln('  nova show --tree');
   end;
 
   procedure split_package_spec(const fullParam: string;
-  out packageName, versionConstraint: string);
+    out packageName, versionConstraint: string);
   var
     sepPos: integer;
   begin
@@ -574,7 +626,8 @@ var
     end;
   end;
 
-  procedure nova_require(const packageName, versionConstraint: string);
+  procedure nova_require(const packageName, versionConstraint: string;
+  const includeDev: boolean);
   var
     Version: TVersion;
     FinalConstraint: string;
@@ -626,23 +679,23 @@ var
     writeln('Using version ', FinalConstraint, ' for ', packageName);
   end;
 
-  procedure internal_install_packages(const fname: string; pkgs: TFPList);
+  procedure internal_install_packages(const fname: string; pkgs: TFPList;
+  const includeDev: boolean);
   var
     RequireObj, DevObj, jsonData: TJSONObject;
-    i: integer;
+    i:   integer;
     repo, constraint, path: string;
     version: TVersion;
     pkg: pPackage;
-    j: integer;
+    j:   integer;
     found, compatible: boolean;
     SubNova: string;
   begin
     jsonData := create_or_load_json(fname);
 
-    // Process require
+    // process require
     RequireObj := TJSONObject(jsonData.FindPath('require'));
     if RequireObj <> nil then
-    begin
       for i := 0 to RequireObj.Count - 1 do
       begin
         repo := RequireObj.Names[i];
@@ -654,7 +707,7 @@ var
         for j := 0 to pkgs.Count - 1 do
         begin
           pkg := pPackage(pkgs.Items[j]);
-          if (pkg^.Name = repo) then
+          if (pkg^.name = repo) then
           begin
             found := True;
             if matches_constraint(pkg^.Version, constraint) then
@@ -668,10 +721,10 @@ var
                   VENDOR_DIR + PathDelim + StringReplace(repo,
                   '/', PathDelim, [rfReplaceAll]) + PathDelim + DEP_FILE;
                 if FileExists(SubNova) then
-                  internal_install_packages(SubNova, pkgs);
+                  internal_install_packages(SubNova, pkgs, includeDev);
               end;
             end;
-            Break;
+            break;
           end;
         end;
 
@@ -691,7 +744,7 @@ var
           git_clone_or_update(repo, path, version);
 
           New(pkg);
-          pkg^.Name := repo;
+          pkg^.name := repo;
           pkg^.Constraint := constraint;
           pkg^.Version := version;
           pkg^.Hash := version.Hash;
@@ -702,17 +755,15 @@ var
           // Recursively check subdependencies
           SubNova := path + PathDelim + DEP_FILE;
           if FileExists(SubNova) then
-            internal_install_packages(SubNova, pkgs);
+            internal_install_packages(SubNova, pkgs, includeDev);
         end;
       end;
-    end;
 
     // Process require-dev (only if includeDev = True)
     if includeDev then
     begin
       DevObj := TJSONObject(jsonData.FindPath('require-dev'));
       if DevObj <> nil then
-      begin
         for i := 0 to DevObj.Count - 1 do
         begin
           repo := DevObj.Names[i];
@@ -723,7 +774,7 @@ var
           for j := 0 to pkgs.Count - 1 do
           begin
             pkg := pPackage(pkgs.Items[j]);
-            if (pkg^.Name = repo) then
+            if (pkg^.name = repo) then
             begin
               found := True;
               if matches_constraint(pkg^.Version, constraint) then
@@ -736,10 +787,10 @@ var
                     VENDOR_DIR + PathDelim + StringReplace(repo,
                     '/', PathDelim, [rfReplaceAll]) + PathDelim + DEP_FILE;
                   if FileExists(SubNova) then
-                    internal_install_packages(SubNova, pkgs);
+                    internal_install_packages(SubNova, pkgs, includeDev);
                 end;
               end;
-              Break;
+              break;
             end;
           end;
 
@@ -758,7 +809,7 @@ var
             git_clone_or_update(repo, path, version);
 
             New(pkg);
-            pkg^.Name := repo;
+            pkg^.name := repo;
             pkg^.Constraint := constraint;
             pkg^.Version := version;
             pkg^.Hash := version.Hash;
@@ -768,83 +819,81 @@ var
 
             SubNova := path + PathDelim + DEP_FILE;
             if FileExists(SubNova) then
-              internal_install_packages(SubNova, pkgs);
+              internal_install_packages(SubNova, pkgs, includeDev);
           end;
         end;
-      end;
     end;
 
     jsonData.Free;
   end;
 
-procedure purge_vendor_folder(pkgs: TFPList);
-
+  procedure purge_vendor_folder(pkgs: TFPList);
   // Delete parent folders up to VENDOR_DIR if they are empty
-  procedure purge_empty_parent(Dir: string);
-  var
-    sr: TSearchRec;
-    parent: string;
-    isEmpty: boolean;
-  begin
-    parent := ExtractFileDir(Dir); // go one level up (package_vendor)
-
-    // stop if we are at vendor root or above
-    if (parent = '') or (ExpandFileName(parent) = ExpandFileName(VENDOR_DIR)) then
-      Exit;
-
-    // check if parent is empty
-    isEmpty := True;
-    if FindFirst(parent + PathDelim + '*', faAnyFile, sr) = 0 then
+    procedure purge_empty_parent(Dir: string);
+    var
+      sr:      TSearchRec;
+      parent:  string;
+      isEmpty: boolean;
     begin
-      repeat
-        if (sr.Name <> '.') and (sr.Name <> '..') then
-        begin
-          isEmpty := False;
-          Break;
-        end;
-      until FindNext(sr) <> 0;
-      FindClose(sr);
+      parent := ExtractFileDir(Dir); // Go one level up (package_vendor)
+
+      // Stop if we are at vendor root or above
+      if (parent = '') or (ExpandFileName(parent) = ExpandFileName(VENDOR_DIR)) then
+        exit;
+
+      // Check if parent is empty
+      isEmpty := True;
+      if FindFirst(parent + PathDelim + '*', faAnyFile, sr) = 0 then
+      begin
+        repeat
+          if (sr.name <> '.') and (sr.name <> '..') then
+          begin
+            isEmpty := False;
+            break;
+          end;
+        until FindNext(sr) <> 0;
+        FindClose(sr);
+      end;
+
+      // Remove parent if empty
+      if isEmpty then
+        RemoveDir(parent);
     end;
 
-    // remove parent if empty
-    if isEmpty then
-      RemoveDir(parent);
-  end;
-
-var
-  Repo, Path: string;
-  i: integer;
-  pkg: pPackage;
-begin
-  // Purge vendor folder from all orphaned packages
-  for i := 0 to pkgs.Count - 1 do
+  var
+    Repo, Path: string;
+    i:   integer;
+    pkg: pPackage;
   begin
-    pkg := pPackage(pkgs[i]);
-
-    if not pkg^.installed then
+    // Purge vendor folder from all orphaned packages
+    for i := 0 to pkgs.Count - 1 do
     begin
-      repo := pkg^.Name;
+      pkg := pPackage(pkgs[i]);
 
-      Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/',
-        PathDelim, [rfReplaceAll]);
-
-      if DirectoryExists(Path) then
+      if not pkg^.installed then
       begin
-        {$IFDEF WINDOWS}
-        run_and_capture('rmdir', ['/S','/Q',Path]);
-        {$ELSE}
-        run_and_capture('rm', ['-rf', Path]);
-        {$ENDIF}
-        writeln('Deleted vendor files for "', Repo, '".');
+        repo := pkg^.name;
 
-        // try to delete empty parents up to VENDOR_DIR
-        purge_empty_parent(Path);
+        Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/',
+          PathDelim, [rfReplaceAll]);
+
+        if DirectoryExists(Path) then
+        begin
+          {$IFDEF WINDOWS}
+        run_and_capture('rmdir', ['/S','/Q',Path]);
+          {$ELSE}
+          run_and_capture('rm', ['-rf', Path]);
+          {$ENDIF}
+          writeln('Deleted vendor files for "', Repo, '".');
+
+          // try to delete empty parents up to VENDOR_DIR
+          purge_empty_parent(Path);
+        end;
       end;
     end;
   end;
-end;
 
-  procedure nova_install_packages;
+  procedure nova_install_packages(const includeDev: boolean);
   var
     pkgs: TFPList;
     jsonLock: TJSONObject;
@@ -855,7 +904,7 @@ end;
     read_lock_file(jsonLock, pkgs);
 
     // Run internal install package procedure recursively, start with base nova.json
-    internal_install_packages(DEP_FILE, pkgs);
+    internal_install_packages(DEP_FILE, pkgs, includeDev);
 
     write_fpc_config(pkgs);
 
@@ -882,7 +931,7 @@ end;
     Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/', PathDelim, [rfReplaceAll]);
     DepFile := Path + PathDelim + DEP_FILE;
 
-    if not FileExists(DepFile) then Exit;
+    if not FileExists(DepFile) then exit;
 
     JSONData := create_or_load_json(DepFile);
     RequireObj := TJSONObject(JSONData.FindPath('require'));
@@ -911,15 +960,15 @@ end;
     JSONData.Free;
   end;
 
-  procedure nova_remove_packages;
+  procedure nova_remove_packages(const includeDev: boolean);
   var
     i: integer;
   begin
     // Run internal remove package procedure
-    for i := 2 to ParamCount do
-      internal_remove_package(ParamStr(i));
+    for i := 2 to argc do
+      internal_remove_package(argv[i]);
 
-    nova_install_packages;
+    nova_install_packages(includeDev);
   end;
 
   procedure nova_list(showTree: boolean);
@@ -927,13 +976,13 @@ end;
     LockJson: TJSONObject;
     RequireObj, DevObj: TJSONObject;
     Repo, Constraint, Version, Commit: string;
-    LockPkg: TJSONObject;
+    LockPkg:  TJSONObject;
 
     procedure print_section(Obj: TJSONObject; isDev: boolean);
     var
       j: integer;
     begin
-      if Obj = nil then Exit;
+      if Obj = nil then exit;
       for j := 0 to Obj.Count - 1 do
       begin
         Repo := Obj.Names[j];
@@ -966,7 +1015,7 @@ end;
     if not FileExists(DEP_FILE) then
     begin
       writeln('No ', DEP_FILE, ' found. Run "nova init" first.');
-      Exit;
+      exit;
     end;
 
     if FileExists(LOCK_FILE) then
@@ -990,71 +1039,173 @@ end;
     end;
   end;
 
-var
-  Cmd: string;
-  i: integer;
-  isHelp: boolean = False;
-  package, version: string;
-begin
-  for i := 1 to ParamCount do
-    if (ParamStr(i) = '-h') or (ParamStr(i) = '--help') then
-      isHelp := True;
-
-  if (ParamCount < 1) or isHelp then
-    print_usage;
-
-  // Load or create dependency file
-  jsonReq := create_or_load_json(DEP_FILE);
-
-  Cmd := ParamStr(1);
-
-  // Detect --dev anywhere in the args
-  for i := 2 to ParamCount do
-    if ParamStr(i) = '--dev' then
-      includeDev := True;
-
-  if Cmd = 'require' then
+  procedure RegisterOption(cmd: pCommand; const name, description: string);
+  var
+    opt: pOption;
+    i:   integer;
   begin
-    if ParamCount < 2 then
-      writeln('Please specify package(s) to require.')
-    else
+    New(opt);
+    opt^.name := name;
+    opt^.description := description;
+
+    i := 0;
+    while (i < cmd^.options.Count) and
+      (LowerCase(pOption(cmd^.options[i])^.name) < LowerCase(name)) do
+      Inc(i);
+
+    cmd^.options.Insert(i, opt);
+  end;
+
+  function RegisterCommand(const name, description: string;
+    proc: TCommandproc): pCommand;
+  var
+    cmd: pCommand;
+    i:   integer;
+  begin
+    New(cmd);
+    cmd^.name := name;
+    cmd^.description := description;
+    cmd^.proc := proc;
+    cmd^.options := TFPList.Create;
+
+    i := 0;
+    while (i < Commands.Count) and (LowerCase(pCommand(Commands[i])^.name) <
+        LowerCase(name)) do
+      Inc(i);
+
+    Commands.Insert(i, cmd);
+    Result := cmd;
+  end;
+
+  function HasOption(cmd: pCommand; const optName: string): boolean;
+  var
+    i:   integer;
+    opt: pOption;
+  begin
+    for i := 0 to pCommand(cmd)^.options.Count - 1 do
     begin
-      for i := 2 to ParamCount do
-      begin
-        // Ignore --dev
-        if ParamStr(i) = '--dev' then
-          Continue;
-
-        split_package_spec(ParamStr(i), package, version);
-        nova_require(package, version);
-      end;
-
-      nova_install_packages;
+      opt := pOption(pCommand(cmd)^.options[i]);
+      if opt^.name = optName then
+        exit(True);
     end;
-  end
-  else if Cmd = 'remove' then
+    exit(False);
+  end;
+
+  // Nova commands
+  procedure CmdRequire(cmd: pCommand);
+  var
+    i: integer;
+    package, version: string;
+    includeDev: boolean;
   begin
-    if ParamCount < 2 then
+    if argc < 2 then
+    begin
+      writeln('Please specify package(s) to require.');
+      exit;
+    end;
+
+    includeDev := HasOption(cmd, '--dev');
+
+    for i := 2 to argc do
+    begin
+      if argv[i] = '--dev' then Continue;
+      split_package_spec(argv[i], package, version);
+      nova_require(package, version, includeDev);
+    end;
+
+    nova_install_packages(includeDev);
+  end;
+
+  procedure CmdRemove(cmd: pCommand);
+  begin
+    if argc < 2 then
       writeln('Please specify package(s) to remove.')
     else
-      nova_remove_packages;
-  end
-  else if Cmd = 'init' then
-    initialize_nova_package
-  else if Cmd = 'install' then
-    nova_install_packages
-  else if Cmd = 'show' then
-    nova_list(False)
-  else if Cmd = 'tree' then
-    nova_list(True)
-  else
+      nova_remove_packages(False);
+  end;
+
+  procedure CmdInstall(cmd: pCommand);
   begin
-    jsonReq.Free;
-    writeln('Unknown command: ', Cmd);
+    //nova_install_packages;
+  end;
+
+  procedure CmdShow(cmd: pCommand);
+  var
+    tree: boolean;
+  begin
+    tree := HasOption(cmd, '--tree');
+    nova_list(tree);
+  end;
+
+var
+  cmdRec: pCommand;
+  i:      integer;
+  arg:    string;
+begin
+  Commands := TFPList.Create;
+
+  // Register commands
+  RegisterCommand('init', 'Initialize a new project interactively', @CmdInit);
+
+  cmdRec := RegisterCommand('require', 'Add one or more packages as dependencies',
+    @CmdRequire);
+  RegisterOption(cmdRec, '--dev', 'Include packages as development dependencies');
+
+  RegisterCommand('remove', 'Remove one or more packages', @CmdRemove);
+  RegisterCommand('install', 'Install all dependencies and update lock file',
+    @CmdInstall);
+
+  cmdRec := RegisterCommand('show', 'Show installed packages', @CmdShow);
+  RegisterOption(cmdRec, '--tree', 'Show dependency tree instead of flat list');
+
+  // Check for global help
+  for i := 1 to argc - 1 do  // skip argv[0] which is program name
+  begin
+    arg := string(argv[i]);   // convert PChar to Pascal string
+
+    if (arg = '-h') or (arg = '--help') then
+    begin
+      print_usage;
+      FreeCommands;
+      halt(-1);
+    end
+    else
+    if (arg = '-v') or (arg = '--version') then
+    begin
+      print_version;
+      FreeCommands;
+      halt(-1);
+    end;
+  end;
+
+  if argc < 1 then
+    print_usage;
+
+  // Find the command
+  arg := string(argv[1]);
+  cmdRec := nil;
+  for i := 0 to Commands.Count - 1 do
+    if pCommand(Commands[i])^.name = arg then
+    begin
+      cmdRec := pCommand(Commands[i]);
+      break;
+    end;
+
+  if cmdRec = nil then
+  begin
+    writeln('Unknown command: ', arg);
     writeln;
     print_usage;
   end;
 
+  // Load or create dependency file
+  jsonReq := create_or_load_json(DEP_FILE);
+
+  // Execute command
+  cmdRec^.proc(cmdRec);
+
   jsonReq.Free;
+  FreeCommands;
+
   writeln('done.');
 end.
