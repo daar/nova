@@ -1140,7 +1140,6 @@ var
 var
   cmdRec: pCommand;
   i:      integer;
-  arg:    string;
 begin
   Commands := TFPList.Create;
 
@@ -1163,16 +1162,14 @@ begin
   // Check for global help
   for i := 1 to argc - 1 do  // skip argv[0] which is program name
   begin
-    arg := string(argv[i]);   // convert PChar to Pascal string
-
-    if (arg = '-h') or (arg = '--help') then
+    if (argv[i] = '-h') or (argv[i] = '--help') then
     begin
       print_usage;
       FreeCommands;
       halt(-1);
     end
     else
-    if (arg = '-v') or (arg = '--version') then
+    if (argv[i] = '-v') or (argv[i] = '--version') then
     begin
       print_version;
       FreeCommands;
@@ -1184,10 +1181,9 @@ begin
     print_usage;
 
   // Find the command
-  arg := string(argv[1]);
   cmdRec := nil;
   for i := 0 to Commands.Count - 1 do
-    if pCommand(Commands[i])^.name = arg then
+    if pCommand(Commands[i])^.name = argv[1] then
     begin
       cmdRec := pCommand(Commands[i]);
       break;
@@ -1195,7 +1191,7 @@ begin
 
   if cmdRec = nil then
   begin
-    writeln('Unknown command: ', arg);
+    writeln('Unknown command: ', argv[1]);
     writeln;
     print_usage;
   end;
