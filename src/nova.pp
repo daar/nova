@@ -889,33 +889,6 @@ var
     end;
   end;
 
-  procedure nova_install_packages(const includeDev: boolean);
-  var
-    pkgs: TFPList;
-    jsonLock: TJSONObject;
-    i: integer;
-  begin
-    pkgs := TFPList.Create;
-    jsonLock := create_or_load_json(LOCK_FILE);
-    read_lock_file(jsonLock, pkgs);
-
-    // Run internal install package procedure recursively, start with base nova.json
-    internal_install_packages(DEP_FILE, pkgs, includeDev);
-
-    write_fpc_config(pkgs);
-
-    purge_vendor_folder(pkgs);
-
-    write_lock_file(jsonLock, pkgs);
-
-    jsonLock.Free;
-
-    // Free all packages within the list
-    for i := 0 to pkgs.Count - 1 do
-      Dispose(pPackage(pkgs[i]));
-    pkgs.Free;
-  end;
-
   procedure print_dependency_tree(const Repo: string; const Prefix: string;
     isDev: boolean);
   var
@@ -1062,15 +1035,13 @@ var
     Result := cmd;
   end;
 
-  function HasOption(cmd: pCommand; const optName: string): boolean;
+  function HasOption(const optName: string): boolean;
   var
     i:   integer;
-    opt: pOption;
   begin
-    for i := 0 to pCommand(cmd)^.options.Count - 1 do
+    for i := 1 to argc - 1 do
     begin
-      opt := pOption(pCommand(cmd)^.options[i]);
-      if opt^.name = optName then
+      if argv[i] = optName then
         exit(True);
     end;
     exit(False);
@@ -1089,7 +1060,7 @@ var
       exit;
     end;
 
-    includeDev := HasOption(cmd, '--dev');
+    includeDev := HasOption('--dev');
 
     for i := 2 to argc do
     begin
@@ -1122,7 +1093,7 @@ var
     else
       for i := 2 to argc do
         if (argv[i] <> '') and internal_remove_package(argv[i]) then
-            removed := True;
+          removed := True;
 
     if removed then
     begin
@@ -1132,16 +1103,38 @@ var
   end;
 
   procedure CmdInstall(cmd: pCommand);
+  var
+    includeDev: boolean;
+    pkgs: TFPList;
+    jsonLock: TJSONObject;
+    i: integer;
   begin
-    //nova_install_packages;
+    includeDev := HasOption('--dev');
+
+    pkgs := TFPList.Create;
+    jsonLock := create_or_load_json(LOCK_FILE);
+    read_lock_file(jsonLock, pkgs);
+
+    // Run internal install package procedure recursively, start with base nova.json
+    internal_install_packages(DEP_FILE, pkgs, includeDev);
+
+    write_fpc_config(pkgs);
+
+    purge_vendor_folder(pkgs);
+
+    write_lock_file(jsonLock, pkgs);
+
+    jsonLock.Free;
+
+    // Free all packages within the list
+    for i := 0 to pkgs.Count - 1 do
+      Dispose(pPackage(pkgs[i]));
+    pkgs.Free;
   end;
 
   procedure CmdShow(cmd: pCommand);
-  var
-    tree: boolean;
   begin
-    tree := HasOption(cmd, '--tree');
-    nova_list(tree);
+    nova_list(HasOption('--tree'));
   end;
 
 var
@@ -1159,8 +1152,10 @@ begin
   RegisterOption(cmdRec, '--dev', 'Include packages as development dependencies');
 
   RegisterCommand('remove', 'Remove one or more packages', @CmdRemove);
-  RegisterCommand('install', 'Install all dependencies and update lock file',
+
+  cmdRec := RegisterCommand('install', 'Install all dependencies and update lock file',
     @CmdInstall);
+  RegisterOption(cmdRec, '--dev', 'Include development dependencies');
 
   cmdRec := RegisterCommand('show', 'Show installed packages', @CmdShow);
   RegisterOption(cmdRec, '--tree', 'Show dependency tree instead of flat list');
