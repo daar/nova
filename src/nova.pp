@@ -41,7 +41,7 @@ var
   includeDev: boolean = False;
 
 
-  //  { ------------------ Helper Functions ------------------ }
+  { ------------------ Helper Functions ------------------ }
 
   function run_and_capture(const Cmd: string; const Args: array of string): string;
   var
@@ -218,7 +218,7 @@ var
     end;
   end;
 
-  //  { ------------------ JSON Helpers ------------------ }
+  { ------------------ JSON Helpers ------------------ }
 
   procedure save_json(const FName: string; jData: TJSONObject);
   var
@@ -255,7 +255,7 @@ var
     end;
   end;
 
-  //  { ------------------ Package Management ------------------ }
+  { ------------------ Package Management ------------------ }
 
   function package_exists(const Section, Repo: string): boolean;
   var
@@ -355,7 +355,7 @@ var
       pkg^.Version := parse_version(LockObj.Get('version', '0.0.0'));
       pkg^.Hash := LockObj.Get('hash', '');
       pkg^.includeDev := LockObj.Get('dev', False);
-      pkg^.Installed := False; // not yet installed during this run
+      pkg^.Installed := False; // Not yet installed during this run
       Packages.Add(pkg);
     end;
   end;
@@ -422,7 +422,7 @@ var
     UserName, FolderName: string;
     Path: string;
   begin
-    // --- Get username ---
+    // Get username
     {$IFDEF WINDOWS}
     SetLength(UserName, 256);
     if GetEnvironmentVariable('USERNAME', PChar(UserName), Length(UserName)) > 0 then
@@ -434,14 +434,13 @@ var
     if UserName = '' then
       UserName := 'user';
 
-    // --- Get current folder name ---
+    // Get current folder name
     Path := GetCurrentDir;
     FolderName := ExtractFileName(Path);
 
     if FolderName = '' then
       FolderName := 'project';
 
-    // --- Combine ---
     Result := LowerCase(UserName) + '/' + LowerCase(FolderName);
   end;
 
@@ -581,7 +580,7 @@ var
     FinalConstraint: string;
     jsonPkg: TJSONObject;
   begin
-    //skip if package is already found
+    // Skip if package is already found
     if package_exists('require', packageName) or
       package_exists('require-dev', packageName) then
     begin
@@ -589,19 +588,19 @@ var
       exit;
     end;
 
-    //determine versionConstraint
+    // Determine versionConstraint
     if versionConstraint <> '' then
       FinalConstraint := versionConstraint
     else
     begin
-      //resolve version from packageName
+      // Resolve version from packageName
       Version := resolve_version(packageName, versionConstraint);
 
-      //default: caret constraint on Major.Minor
+      // Default: caret constraint on Major.Minor
       FinalConstraint := Format('^%d.%d', [Version.Major, Version.Minor]);
     end;
 
-    //update nova.json
+    // Update nova.json
     if includeDev then
     begin
       jsonPkg := TJSONObject(jsonReq.FindPath('require-dev'));
@@ -640,7 +639,7 @@ var
   begin
     jsonData := create_or_load_json(fname);
 
-    // --- process require
+    // Process require
     RequireObj := TJSONObject(jsonData.FindPath('require'));
     if RequireObj <> nil then
     begin
@@ -708,7 +707,7 @@ var
       end;
     end;
 
-    // --- process require-dev (only if includeDev = True)
+    // Process require-dev (only if includeDev = True)
     if includeDev then
     begin
       DevObj := TJSONObject(jsonData.FindPath('require-dev'));
@@ -784,7 +783,7 @@ var
     i: integer;
     pkg: pPackage;
   begin
-    // purge vendor folder from all orphaned packages
+    // Purge vendor folder from all orphaned packages
     for i := 0 to pkgs.Count - 1 do
     begin
       pkg := pPackage(pkgs[i]);
@@ -819,7 +818,7 @@ var
     jsonLock := create_or_load_json(LOCK_FILE);
     read_lock_file(jsonLock, pkgs);
 
-    //run internal install package procedure recursively, start with base nova.json
+    // Run internal install package procedure recursively, start with base nova.json
     internal_install_packages(DEP_FILE, pkgs);
 
     write_fpc_config(pkgs);
@@ -830,7 +829,7 @@ var
 
     jsonLock.Free;
 
-    //free all packages within the list
+    // Free all packages within the list
     for i := 0 to pkgs.Count - 1 do
       Dispose(pPackage(pkgs[i]));
     pkgs.Free;
@@ -880,7 +879,7 @@ var
   var
     i: integer;
   begin
-    //run internal remove package procedure
+    // Run internal remove package procedure
     for i := 2 to ParamCount do
       internal_remove_package(ParamStr(i));
 
@@ -968,7 +967,7 @@ begin
   if (ParamCount < 1) or isHelp then
     print_usage;
 
-  // --- Load or create dependency file ---
+  // Load or create dependency file
   jsonReq := create_or_load_json(DEP_FILE);
 
   Cmd := ParamStr(1);
@@ -986,7 +985,7 @@ begin
     begin
       for i := 2 to ParamCount do
       begin
-        //ignore --dev
+        // Ignore --dev
         if ParamStr(i) = '--dev' then
           Continue;
 
@@ -1012,8 +1011,6 @@ begin
     nova_list(False)
   else if Cmd = 'tree' then
     nova_list(True)
-  //  else if (Cmd = 'self-update') or (Cmd = 'selfupdate') then
-  //    SelfUpdate
   else
   begin
     jsonReq.Free;
