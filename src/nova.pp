@@ -626,8 +626,8 @@ var
     end;
   end;
 
-  procedure nova_require(const packageName, versionConstraint: string;
-  const includeDev: boolean);
+  function nova_require(const packageName, versionConstraint: string;
+  const includeDev: boolean): boolean;
   var
     Version: TVersion;
     FinalConstraint: string;
@@ -638,7 +638,7 @@ var
       package_exists('require-dev', packageName) then
     begin
       writeln('Package "', packageName, '" is already present. Skipping.');
-      exit;
+      exit(false);
     end;
 
     // Determine versionConstraint
@@ -674,9 +674,8 @@ var
     end;
     jsonPkg.Add(packageName, FinalConstraint);
 
-    save_json(DEP_FILE, jsonReq);
-
     writeln('Using version ', FinalConstraint, ' for ', packageName);
+    exit(true);
   end;
 
   procedure internal_install_packages(const fname: string; pkgs: TFPList;
@@ -1091,12 +1090,12 @@ var
     exit(False);
   end;
 
-  // Nova commands
   procedure CmdRequire(cmd: pCommand);
   var
     i: integer;
     package, version: string;
     includeDev: boolean;
+    found: boolean;
   begin
     if argc < 2 then
     begin
@@ -1108,12 +1107,23 @@ var
 
     for i := 2 to argc do
     begin
+      // Ignore the --dev argument
       if argv[i] = '--dev' then Continue;
-      split_package_spec(argv[i], package, version);
-      nova_require(package, version, includeDev);
+
+      if argv[i] <> '' then
+      begin
+        split_package_spec(argv[i], package, version);
+
+        if nova_require(package, version, includeDev) then
+          found := True;
+      end;
     end;
 
-    nova_install_packages(includeDev);
+    if found then
+    begin
+      save_json(DEP_FILE, jsonReq);
+      writeln('Execute `nova install [--dev]` to install dependencies and complete setup.');
+    end;
   end;
 
   procedure CmdRemove(cmd: pCommand);
