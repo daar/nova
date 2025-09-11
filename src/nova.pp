@@ -555,7 +555,7 @@ var
   end;
 
   procedure split_package_spec(const fullParam: string;
-  var packageName, versionConstraint: string);
+  out packageName, versionConstraint: string);
   var
     sepPos: integer;
   begin
