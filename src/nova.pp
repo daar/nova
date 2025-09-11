@@ -777,36 +777,72 @@ var
     jsonData.Free;
   end;
 
-  procedure purge_vendor_folder(pkgs: TFPList);
+procedure purge_vendor_folder(pkgs: TFPList);
+
+  // Delete parent folders up to VENDOR_DIR if they are empty
+  procedure purge_empty_parent(Dir: string);
   var
-    Repo, Path: string;
-    i: integer;
-    pkg: pPackage;
+    sr: TSearchRec;
+    parent: string;
+    isEmpty: boolean;
   begin
-    // Purge vendor folder from all orphaned packages
-    for i := 0 to pkgs.Count - 1 do
+    parent := ExtractFileDir(Dir); // go one level up (package_vendor)
+
+    // stop if we are at vendor root or above
+    if (parent = '') or (ExpandFileName(parent) = ExpandFileName(VENDOR_DIR)) then
+      Exit;
+
+    // check if parent is empty
+    isEmpty := True;
+    if FindFirst(parent + PathDelim + '*', faAnyFile, sr) = 0 then
     begin
-      pkg := pPackage(pkgs[i]);
-
-      if not pkg^.installed then
-      begin
-        repo := pkg^.Name;
-
-        Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/',
-          PathDelim, [rfReplaceAll]);
-
-        if DirectoryExists(Path) then
+      repeat
+        if (sr.Name <> '.') and (sr.Name <> '..') then
         begin
-          {$IFDEF WINDOWS}
-          run_and_capture('rmdir', ['/S','/Q',Path]);
-          {$ELSE}
-          run_and_capture('rm', ['-rf', Path]);
-          {$ENDIF}
-          writeln('Deleted vendor files for "', Repo, '".');
+          isEmpty := False;
+          Break;
         end;
+      until FindNext(sr) <> 0;
+      FindClose(sr);
+    end;
+
+    // remove parent if empty
+    if isEmpty then
+      RemoveDir(parent);
+  end;
+
+var
+  Repo, Path: string;
+  i: integer;
+  pkg: pPackage;
+begin
+  // Purge vendor folder from all orphaned packages
+  for i := 0 to pkgs.Count - 1 do
+  begin
+    pkg := pPackage(pkgs[i]);
+
+    if not pkg^.installed then
+    begin
+      repo := pkg^.Name;
+
+      Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/',
+        PathDelim, [rfReplaceAll]);
+
+      if DirectoryExists(Path) then
+      begin
+        {$IFDEF WINDOWS}
+        run_and_capture('rmdir', ['/S','/Q',Path]);
+        {$ELSE}
+        run_and_capture('rm', ['-rf', Path]);
+        {$ENDIF}
+        writeln('Deleted vendor files for "', Repo, '".');
+
+        // try to delete empty parents up to VENDOR_DIR
+        purge_empty_parent(Path);
       end;
     end;
   end;
+end;
 
   procedure nova_install_packages;
   var
