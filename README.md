@@ -2,7 +2,7 @@
 
 Nova is a **package manager and build environment tool for Free Pascal projects**. It helps you manage dependencies, ensure reproducible builds, and streamline your development workflow.
 
-With nova, you can:
+With Nova, you can:
 
 * Install and update Free Pascal packages from remote sources.
 * Ensure consistent and reproducible builds across machines and pipelines — Nova is particularly well-suited for **CI/CD environments**.
@@ -14,11 +14,11 @@ You can install Nova in two ways:
 
 1. **Download a binary release**
 
-   * Visit the [nova releases page](https://github.com/daar/nova/releases) and download and install the appropriate binary for your platform.
+   * Visit the [Nova releases page](https://github.com/daar/nova/releases) and download and install the appropriate binary for your platform.
 
 2. **Update to the latest version**
 
-   * Once installed, you can always upgrade nova by running:
+   * Once installed, you can always upgrade Nova by running:
 
      ```bash
      nova self-update
@@ -36,7 +36,7 @@ Nova provides **four main workflow commands**. Each command affects the `nova.js
 | `install` | No changes                   | Uses existing lock (no changes) | Syncs vendor with lock file           | Reproducible environment setup |
 
 
-> **Note:** After every action, Nova automatically regenerates `fpc.cfg` from the `nova.lock` file, ensuring your build configuration stays up to date.
+> **Note:** After every command, Nova automatically regenerates `fpc.cfg` from the `nova.lock` file, ensuring your build configuration stays up to date.
 
 ## Getting Started
 
