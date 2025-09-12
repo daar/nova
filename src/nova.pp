@@ -1130,6 +1130,15 @@ var
     for i := 0 to pkgs.Count - 1 do
       Dispose(pPackage(pkgs[i]));
     pkgs.Free;
+
+    writeln('Run `nova install [--dev]` to update and clean up dependencies.');
+  end;
+
+  procedure CmdUpdate(cmd: pCommand);
+  var
+    includeDev: Boolean;
+  begin
+    includeDev := HasOption('--dev');
   end;
 
   procedure CmdShow(cmd: pCommand);
@@ -1151,6 +1160,9 @@ begin
   RegisterOption(cmdRec, '--dev', 'Include packages as development dependencies');
 
   RegisterCommand('remove', 'Remove one or more packages', @CmdRemove);
+
+  cmdRec := RegisterCommand('update', 'Update dependency versions and regenerate the lockfile.', @CmdUpdate);
+  RegisterOption(cmdRec, '--dev', 'Include development dependencies');
 
   cmdRec := RegisterCommand('install', 'Install all dependencies and update lock file',
     @CmdInstall);
