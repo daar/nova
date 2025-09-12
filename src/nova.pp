@@ -37,20 +37,32 @@ type
   end;
 
   TVersion = record
-    Major, Minor, Patch: integer;
-    hash: string;
+    major, minor, patch: integer;
     name: string;
+    constraint: string;
+    hash: string;
   end;
 
-  pPackage = ^TPackage;
+  pResolvedDep = ^TResolvedDep;
 
-  TPackage = record
-    name: string;           // e.g. "laravel/pint"
-    constraint: string;     // e.g. "^1.24"
-    version: TVersion;      // resolved version, e.g. "1.24.0"
-    hash: string;           // commit hash after cloning
-    includeDev: boolean;    // whether it’s a dev dependency
-    installed: boolean;     // whether the package was installed already
+  TResolvedDep = record
+    name: string;        // e.g. daar/linkedlist
+    constraint: string;  // original constraint from nova.json (e.g. "^1.2.0")
+    version: string;     // resolved exact version (e.g. "1.2.3")
+    commit: string;      // commit hash if from git, otherwise empty
+    repo: string;        // source repo/registry URL
+    dev: boolean;        // wether it's a dev package
+    source: string;      // source directory in repo (default src)
+    bin: TStringList;    // executable path (e.g. "bin/nova.exe")
+    requires: TFPList;   // list of pResolvedDep (recursive requirements)
+  end;
+
+  pLockFile = ^TLockFile;
+
+  TLockFile = record
+    RootName: string;       // Name of the root project
+    RootVersion: string;    // Version of the root project
+    requires: TFPList;  // List of pResolvedDep (top-level deps)
   end;
 
 var
@@ -198,7 +210,7 @@ var
   var
     Tags:  string;
     Lines: TStringList;
-    I:     integer;
+    i:     integer;
     Candidate, Best: string;
     CandidateVer, BestVer: TVersion;
   begin
@@ -208,12 +220,12 @@ var
     Best := '';
     try
       Lines.Text := Tags;
-      for I := 0 to Lines.Count - 1 do
-        if Pos('refs/tags/', Lines[I]) > 0 then
+      for i := 0 to Lines.Count - 1 do
+        if Pos('refs/tags/', Lines[i]) > 0 then
         begin
-          Candidate := Copy(Lines[I], Pos('refs/tags/', Lines[I]) + 10, MaxInt);
+          Candidate := Copy(Lines[i], Pos('refs/tags/', Lines[i]) + 10, MaxInt);
           CandidateVer := parse_version(Candidate);
-          CandidateVer.hash := Trim(Copy(Lines[I], 1, Pos(#9, Lines[I]) - 1));
+          CandidateVer.hash := Trim(Copy(Lines[i], 1, Pos(#9, Lines[i]) - 1));
           if matches_constraint(CandidateVer, Constraint) then
             if (Best = '') or (compare_versions(CandidateVer, BestVer) > 0) then
             begin
@@ -230,28 +242,25 @@ var
     end;
   end;
 
-  //  function VersionToStr(version: TVersion): string;
-  //  begin
-  //    Result := Format('%d.%d.%d', [version.Major, version.Minor, version.Patch]);
-  //  end;
-
-  procedure git_clone_or_update(const Repo, Path: string; const ver: TVersion);
+  procedure git_clone_or_update(const Repo, Path: string; const version, constraint, hash: string);
   begin
     if DirectoryExists(Path) then
     begin
-      writeln('Updating ', Repo, '...');
+      writeln('  -- Updating ', Repo, ':', constraint, ' → ', version, ' (' + Copy(hash, 1, 7) + ')');
+
       // Fetch all updates
       run_and_capture('git', ['-C', Path, 'fetch', '--all']);
       // Checkout the exact commit hash
-      run_and_capture('git', ['-C', Path, 'checkout', ver.hash]);
+      run_and_capture('git', ['-C', Path, 'checkout', hash]);
     end
     else
     begin
-      writeln('Cloning ', Repo, '@', ver.name, '...');
+      writeln('  -- Installing ', Repo, ':', constraint, ' → ', version, ' (' + Copy(hash, 1, 7) + ')');
+
       // Clone the repository (full history required to checkout a commit hash)
       run_and_capture('git', ['clone', 'https://github.com/' + Repo + '.git', Path]);
       // Checkout the exact commit hash
-      run_and_capture('git', ['-C', Path, 'checkout', ver.hash]);
+      run_and_capture('git', ['-C', Path, 'checkout', hash]);
     end;
   end;
 
@@ -294,40 +303,108 @@ var
 
   { ------------------ Package Management ------------------ }
 
-  function package_exists(const Section, Repo: string): boolean;
+  function package_exists_in_section(const Section, packageName: string): boolean;
   var
     Obj: TJSONObject;
   begin
     Result := False;
     Obj := TJSONObject(jsonReq.FindPath(Section));
     if Obj <> nil then
-      Result := Obj.IndexOfName(Repo) <> -1;
+      Result := Obj.IndexOfName(packageName) <> -1;
   end;
 
-  //  procedure CopyFile(fFrom, fTo: string);
-  //  var
-  //    SourceF, DestF: TFileStream;
-  //  begin
-  //    SourceF := TFileStream.Create(fFrom, fmOpenRead);
-  //    DestF := TFileStream.Create(fTo, fmCreate);
-  //    DestF.CopyFrom(SourceF, SourceF.Size);
-  //    SourceF.Free;
-  //    DestF.Free;
-  //  end;
+  function package_already_registered(const packageName: string): boolean;
+  begin
+    // Skip if package is already found
+    if package_exists_in_section('require', packageName) or
+      package_exists_in_section('require-dev', packageName) then
+    begin
+      writeln('Package "', packageName, '" is already present. Skipping.');
+      exit(True);
+    end;
+    exit(False);
+  end;
 
-  procedure write_fpc_config(packages: TFPList);
+  procedure update_requirements_file(const packageName, versionConstraint: string;
+  const includeDev: boolean);
   var
-    I:   integer;
-    pkg: pPackage;
-    PathVal: string;
+    jsonPkg: TJSONObject;
+  begin
+    // Update nova.json
+    if includeDev then
+    begin
+      jsonPkg := TJSONObject(jsonReq.FindPath('require-dev'));
+      if jsonPkg = nil then
+      begin
+        jsonPkg := TJSONObject.Create;
+        jsonReq.Add('require-dev', jsonPkg);
+      end;
+    end
+    else
+    begin
+      jsonPkg := TJSONObject(jsonReq.FindPath('require'));
+      if jsonPkg = nil then
+      begin
+        jsonPkg := TJSONObject.Create;
+        jsonReq.Add('require', jsonPkg);
+      end;
+    end;
+    jsonPkg.Add(packageName, versionConstraint);
+  end;
+
+  function resolve_constraint(const packageName, versionConstraint: string): TVersion;
+  begin
+    // Resolve version from packageName
+    Result := resolve_version(packageName, versionConstraint);
+
+    // Determine versionConstraint
+    if versionConstraint <> '' then
+      Result.constraint := versionConstraint
+    else
+      // Default: caret constraint on Major.Minor
+      Result.constraint := Format('^%d.%d', [Result.major, Result.minor]);
+  end;
+
+  procedure write_fpc_config(lock: pLockFile);
+  var
     FPCLines: TStringList;
+
+    procedure AddDepPaths(dep: pResolvedDep);
+    var
+      PathVal: string;
+      i:   integer;
+      sub: pResolvedDep;
+    begin
+      if dep = nil then exit;
+
+      // Add the vendor path for this package
+      PathVal := IncludeTrailingPathDelimiter(VENDOR_DIR) +
+        StringReplace(dep^.name, '/', PathDelim, [rfReplaceAll]);
+
+      if dep^.source <> '' then
+        PathVal := IncludeTrailingPathDelimiter(PathVal) + dep^.source
+      else
+        PathVal := IncludeTrailingPathDelimiter(PathVal) + 'src';
+
+      FPCLines.Add('-Fu ' + PathVal);
+
+      // Recurse into nested dependencies
+      for i := 0 to dep^.Requires.Count - 1 do
+      begin
+        sub := pResolvedDep(dep^.Requires[i]);
+        AddDepPaths(sub);
+      end;
+    end;
+
+  var
+    i: integer;
     BaseConfig: string;
   begin
     FPCLines := TStringList.Create;
     try
       // Determine base/system fpc.cfg
       {$IFDEF UNIX}
-    BaseConfig := '/etc/fpc.cfg';
+      BaseConfig := '/etc/fpc.cfg';
       {$ENDIF}
       {$IFDEF MSWINDOWS}
       BaseConfig := IncludeTrailingPathDelimiter(GetEnvironmentVariable('FPCDIR')) +
@@ -341,29 +418,19 @@ var
       FPCLines.Add('#');
       FPCLines.Add('');
 
-      // Include the base fpc.cfg if it exists
+      // Include base config if it exists
       if (BaseConfig <> '') and FileExists(BaseConfig) then
-        FPCLines.Add('# Include system/base FPC configuration')
-      else
-        BaseConfig := '';
-
-      if BaseConfig <> '' then
+      begin
+        FPCLines.Add('# Include system/base FPC configuration');
         FPCLines.Add('#include ' + BaseConfig);
+        FPCLines.Add('');
+      end;
 
-      FPCLines.Add('');
       FPCLines.Add('# Vendor package search paths');
 
-      // Add all package paths
-      for I := 0 to packages.Count - 1 do
-      begin
-        pkg := pPackage(packages[I]);
-        if pkg^.installed then
-        begin
-          PathVal := IncludeTrailingPathDelimiter(VENDOR_DIR) +
-            StringReplace(pkg^.name, '/', PathDelim, [rfReplaceAll]);
-          FPCLines.Add('-Fu ' + PathVal);
-        end;
-      end;
+      // Add all top-level requirements and their nested deps
+      for i := 0 to lock^.requires.Count - 1 do
+        AddDepPaths(pResolvedDep(lock^.requires[i]));
 
       // Save the generated config
       FPCLines.SaveToFile(FPC_CONFIG);
@@ -373,78 +440,444 @@ var
     end;
   end;
 
-  procedure read_lock_file(jsonLock: TJSONObject; var Packages: TFPList);
-  var
-    LockObj: TJSONObject;
-    i:   integer;
-    pkg: pPackage;
-  begin
-    Packages.Clear;
+  function load_lock_file: pLockFile;
 
-    for i := 0 to jsonLock.Count - 1 do
+    function JSONToDep(const name: string; obj: TJSONObject): pResolvedDep;
+    var
+      dep: pResolvedDep;
+      bins, reqs: TJSONObject;
+      it:  TJSONEnum;
     begin
-      LockObj := TJSONObject(jsonLock.Items[i]);
-      if LockObj = nil then Continue;
+      New(dep);
+      dep^.name := name;
+      dep^.constraint := obj.Get('constraint', '');
+      dep^.version := obj.Get('version', '');
+      dep^.commit := obj.Get('commit', '');
+      dep^.source := obj.Get('source', '');
+      dep^.repo := obj.Get('repo', '');
+      dep^.dev := obj.Get('dev', False);
 
-      New(pkg);
-      pkg^.name := jsonLock.Names[i];
-      pkg^.Constraint := LockObj.Get('constraint', '');
-      pkg^.Version := parse_version(LockObj.Get('version', '0.0.0'));
-      pkg^.Hash := LockObj.Get('hash', '');
-      pkg^.includeDev := LockObj.Get('dev', False);
-      pkg^.Installed := False; // Not yet installed during this run
-      Packages.Add(pkg);
+      // Bin section
+      dep^.Bin := TStringList.Create;
+      bins := obj.Objects['bin'];
+      if Assigned(bins) then
+        for it in bins do
+          dep^.Bin.Add(it.Key + '=' + it.Value.AsString);
+
+      // Requires section (recursive)
+      dep^.Requires := TFPList.Create;
+      reqs := obj.Objects['requires'];
+      if Assigned(reqs) then
+        for it in reqs do
+          dep^.Requires.Add(JSONToDep(it.Key, TJSONObject(it.Value)));
+
+      Result := dep;
+    end;
+
+  var
+    root, deps: TJSONObject;
+    it:   TJSONEnum;
+    lock: pLockFile;
+    depsData: TJSONData;
+  begin
+    try
+      root := create_or_load_json(LOCK_FILE);
+
+      New(lock);
+      lock^.RootName := root.Get('name', '');
+      lock^.RootVersion := root.Get('version', '');
+      lock^.requires := TFPList.Create;
+
+      depsData := root.Find('requires');
+      if Assigned(depsData) then
+      begin
+        deps := root.Objects['requires'];
+
+        for it in deps do
+          lock^.requires.Add(JSONToDep(it.Key, TJSONObject(it.Value)));
+      end;
+
+      Result := lock;
+    finally
+      root.Free;
     end;
   end;
 
-  procedure write_lock_file(jsonLock: TJSONObject; Packages: TFPList);
-  var
-    PkgObj: TJSONObject;
-    i:      integer;
-    pkg:    pPackage;
-  begin
-    jsonLock.Clear;
+  procedure save_lock_file(lock: pLockFile);
 
-    for i := 0 to Packages.Count - 1 do
+    function DepToJSON(dep: pResolvedDep): TJSONObject;
+    var
+      obj, bins, reqs: TJSONObject;
+      i:   integer;
+      sub: pResolvedDep;
     begin
-      pkg := pPackage(Packages[i]);
+      obj := TJSONObject.Create;
+      obj.Add('constraint', dep^.Constraint);
+      obj.Add('version', dep^.Version);
+      obj.Add('commit', dep^.Commit);
+      obj.Add('repo', dep^.repo);
+      obj.Add('source', dep^.source);
+      obj.Add('dev', dep^.dev);
 
-      if pkg^.installed then
+      // Bin section
+      bins := TJSONObject.Create;
+      for i := 0 to dep^.Bin.Count - 1 do
+        bins.Add(dep^.Bin.Names[i], dep^.Bin.ValueFromIndex[i]);
+      obj.Add('bin', bins);
+
+      // Requires section (recursive)
+      reqs := TJSONObject.Create;
+      for i := 0 to dep^.Requires.Count - 1 do
       begin
-        PkgObj := TJSONObject.Create;
-        PkgObj.Add('constraint', pkg^.Constraint);
-        PkgObj.Add('version', pkg^.Version.name);
-        PkgObj.Add('hash', pkg^.Hash);
-        PkgObj.Add('dev', pkg^.includeDev);
+        sub := pResolvedDep(dep^.Requires[i]);
+        reqs.Add(sub^.name, DepToJSON(sub));
+      end;
+      obj.Add('requires', reqs);
 
-        jsonLock.Add(pkg^.name, PkgObj);
+      Result := obj;
+    end;
+
+  var
+    root, deps: TJSONObject;
+    i:   integer;
+    dep: pResolvedDep;
+  begin
+    if lock = nil then exit;
+
+    root := TJSONObject.Create;
+    try
+      root.Add('name', lock^.RootName);
+      root.Add('version', lock^.RootVersion);
+
+      deps := TJSONObject.Create;
+      for i := 0 to lock^.requires.Count - 1 do
+      begin
+        dep := pResolvedDep(lock^.requires[i]);
+        deps.Add(dep^.name, DepToJSON(dep));
+      end;
+      root.Add('requires', deps);
+
+      // Save JSON to file with indentation
+      save_json(LOCK_FILE, root);
+    finally
+      root.Free;
+    end;
+  end;
+
+  procedure free_lock_file(lock: PLockFile);
+
+    procedure FreeResolvedDep(dep: pResolvedDep);
+    var
+      i:   integer;
+      sub: pResolvedDep;
+    begin
+      if dep = nil then exit;
+
+      // Free nested requires recursively
+      if Assigned(dep^.Requires) then
+      begin
+        for i := 0 to dep^.Requires.Count - 1 do
+        begin
+          sub := pResolvedDep(dep^.Requires[i]);
+          FreeResolvedDep(sub);
+        end;
+        dep^.Requires.Free;
+      end;
+
+      // Free bin mapping
+      if Assigned(dep^.Bin) then
+        dep^.Bin.Free;
+
+      // Finally dispose the record itself
+      Dispose(dep);
+    end;
+
+  var
+    i:   integer;
+    dep: pResolvedDep;
+  begin
+    if lock = nil then exit;
+
+    // Free all top-level requires
+    if Assigned(lock^.requires) then
+    begin
+      for i := 0 to lock^.requires.Count - 1 do
+      begin
+        dep := pResolvedDep(lock^.requires[i]);
+        FreeResolvedDep(dep);
+      end;
+      lock^.requires.Free;
+    end;
+
+    // Finally free the lock file record
+    Dispose(lock);
+  end;
+
+  function add_package_to_lock(lock: pLockFile; const name: string;
+  const Version: TVersion; const Source: string = ''; const Repo: string = '';
+  const dev: boolean = False): pResolvedDep;
+  begin
+    if lock = nil then exit;
+
+    New(Result);
+    Result^.name := name;
+    Result^.Constraint := Version.constraint;
+    Result^.Version := Version.name;
+    Result^.Commit := Version.hash;
+    Result^.source := Source;
+    Result^.repo := Repo;
+    Result^.Bin := TStringList.Create;
+    Result^.Requires := TFPList.Create;
+    Result^.dev := dev;
+
+    lock^.requires.Add(Result);
+  end;
+
+  procedure purge_vendor_folder(lock: pLockFile);
+
+  // Checks recursively whether 'name' exists anywhere in the lock file tree.
+  function LockContainsPackage(const name: string): Boolean;
+    function DepContains(dep: pResolvedDep): Boolean;
+    var
+      i: integer;
+      sub: pResolvedDep;
+    begin
+      if dep = nil then
+        Exit(False);
+      if SameText(dep^.Name, name) then
+        Exit(True);
+      if Assigned(dep^.Requires) then
+      begin
+        for i := 0 to dep^.Requires.Count - 1 do
+        begin
+          sub := pResolvedDep(dep^.Requires[i]);
+          if DepContains(sub) then
+            Exit(True);
+        end;
+      end;
+      Result := False;
+    end;
+  var
+    i: integer;
+    top: pResolvedDep;
+  begin
+    Result := False;
+    if (lock = nil) or (lock^.requires = nil) then Exit;
+    for i := 0 to lock^.requires.Count - 1 do
+    begin
+      top := pResolvedDep(lock^.requires[i]);
+      if DepContains(top) then
+        Exit(True);
+    end;
+  end;
+
+  // Returns True if directory is empty (no files or subdirs except . and ..)
+  function IsDirEmpty(const Dir: string): Boolean;
+  var
+    sr: TSearchRec;
+    found: integer;
+  begin
+    Result := True;
+    found := FindFirst(IncludeTrailingPathDelimiter(Dir) + '*', faAnyFile, sr);
+    if found = 0 then
+    begin
+      try
+        repeat
+          if (sr.Name <> '.') and (sr.Name <> '..') then
+          begin
+            Result := False;
+            Exit;
+          end;
+        until FindNext(sr) <> 0;
+      finally
+        FindClose(sr);
+      end;
+    end;
+  end;
+
+  // Remove empty parent directories up to VENDOR_DIR (recursively upward)
+  procedure RemoveEmptyParents(startDir: string);
+  var
+    parent: string;
+  begin
+    parent := ExtractFileDir(startDir);
+    // Stop if we reached vendor root or nothing sensible
+    while (parent <> '') and (ExpandFileName(parent) <> ExpandFileName(VENDOR_DIR)) do
+    begin
+      if IsDirEmpty(parent) then
+      begin
+        // try remove and continue upward
+        if RemoveDir(parent) then
+          parent := ExtractFileDir(parent)
+        else
+          Exit; // cannot remove, stop
+      end
+      else
+        Exit; // not empty -> stop
+    end;
+  end;
+
+var
+  srParent, srPkg: TSearchRec;
+  parentDir, pkgDir: string;
+  parentName, pkgName, repoName: string;
+  foundParent: integer;
+begin
+  if (lock = nil) or (not DirectoryExists(VENDOR_DIR)) then
+    Exit;
+
+  // Iterate parents under vendor/
+  foundParent := FindFirst(IncludeTrailingPathDelimiter(VENDOR_DIR) + '*', faDirectory, srParent);
+  if foundParent <> 0 then Exit;
+  try
+    repeat
+      // only directories, skip . and ..
+      if (srParent.Attr and faDirectory) = 0 then Continue;
+      if (srParent.Name = '.') or (srParent.Name = '..') then Continue;
+
+      parentName := srParent.Name;
+      parentDir := IncludeTrailingPathDelimiter(VENDOR_DIR) + parentName;
+
+      // Iterate package directories inside each parent
+      if DirectoryExists(parentDir) then
+      begin
+        if FindFirst(IncludeTrailingPathDelimiter(parentDir) + '*', faDirectory, srPkg) = 0 then
+        begin
+          try
+            repeat
+              if (srPkg.Attr and faDirectory) = 0 then Continue;
+              if (srPkg.Name = '.') or (srPkg.Name = '..') then Continue;
+
+              pkgName := srPkg.Name;
+              // Construct repo name exactly as stored in the lock (parent/package)
+              repoName := parentName + '/' + pkgName;
+
+              // If package not present in lock -> delete it
+              if not LockContainsPackage(repoName) then
+              begin
+                pkgDir := IncludeTrailingPathDelimiter(parentDir) + pkgName;
+                {$IFDEF WINDOWS}
+                run_and_capture('rmdir', ['/S','/Q', pkgDir]);
+                {$ELSE}
+                run_and_capture('rm', ['-rf', pkgDir]);
+                {$ENDIF}
+                writeln('Deleted vendor files for "', repoName, '".');
+              end;
+            until FindNext(srPkg) <> 0;
+          finally
+            FindClose(srPkg);
+          end;
+        end;
+
+        // After processing all packages for this parent, remove the parent if it's empty
+        if IsDirEmpty(parentDir) then
+        begin
+          // Try to remove parent folder
+          if RemoveDir(parentDir) then
+            writeln('Removed empty vendor parent "', parentName, '".')
+          else
+            // If RemoveDir failed (maybe not empty due to hidden files), attempt recursive removal as last resort
+            begin
+              {$IFDEF WINDOWS}
+              run_and_capture('rmdir', ['/S','/Q', parentDir]);
+              {$ELSE}
+              run_and_capture('rm', ['-rf', parentDir]);
+              {$ENDIF}
+              writeln('Removed vendor parent "', parentName, '" (forced).');
+            end;
+          // Clean upward parents if any (stops at VENDOR_DIR)
+          RemoveEmptyParents(parentDir);
+        end;
+      end;
+    until FindNext(srParent) <> 0;
+  finally
+    FindClose(srParent);
+  end;
+end;
+
+  function internal_remove_package(const Repo: string; lockFile: PLockFile): boolean;
+
+    function RemoveRequirement(const Repo: string; root: TJSONObject;
+    const section: string): boolean;
+    var
+      depsObj: TJSONObject;
+    begin
+      Result := False;
+
+      if root = nil then
+        exit;
+
+      // Lazily ensure the section exists
+      if root.Find(section) = nil then
+        exit; // nothing to remove
+
+      depsObj := root.Objects[section];
+
+      if (depsObj <> nil) and (depsObj.IndexOfName(Repo) <> -1) then
+      begin
+        depsObj.Remove(depsObj.Find(Repo));
+        Result := True;
       end;
     end;
 
-    save_json(LOCK_FILE, jsonLock);
-  end;
+    function IsOrphan(const Repo: string; lockFile: PLockFile): boolean;
+    var
+      i, j:     integer;
+      dep, sub: pResolvedDep;
+    begin
+      // Check if Repo is referenced in any dependency's Requires list
+      for i := 0 to lockFile^.requires.Count - 1 do
+      begin
+        dep := pResolvedDep(lockFile^.requires[i]);
+        if dep^.name = Repo then
+          Continue; // skip self
 
-  function internal_remove_package(const Repo: string): boolean;
+        if dep^.requires <> nil then
+          for j := 0 to dep^.requires.Count - 1 do
+          begin
+            sub := pResolvedDep(dep^.requires[j]);
+            if sub^.name = Repo then
+              exit(False); // found as a dependency somewhere else
+          end;
+      end;
+      Result := True; // not referenced anywhere → orphan
+    end;
+
   var
-    removed: boolean = False;
-    RequireObj, DevObj: TJSONObject;
+    removed: boolean;
+    i:   integer;
+    dep: pResolvedDep;
   begin
-    RequireObj := TJSONObject(jsonReq.FindPath('require'));
-    if Assigned(RequireObj) and (RequireObj.IndexOfName(Repo) <> -1) then
-    begin
-      RequireObj.Remove(RequireObj.Find(Repo));
-      removed := True;
-    end;
-
-    DevObj := TJSONObject(jsonReq.FindPath('require-dev'));
-    if Assigned(DevObj) and (DevObj.IndexOfName(Repo) <> -1) then
-    begin
-      DevObj.Remove(DevObj.Find(Repo));
-      removed := True;
-    end;
+    removed := RemoveRequirement(Repo, jsonReq, 'require') or
+      RemoveRequirement(Repo, jsonReq, 'require-dev');
 
     if removed then
-      writeln('Removed "', Repo, '" from ', DEP_FILE)
+    begin
+      writeln('Removed "', Repo, '" from ', DEP_FILE);
+
+      // Look up Repo in lock file
+      for i := lockFile^.requires.Count - 1 downto 0 do
+      begin
+        dep := pResolvedDep(lockFile^.requires[i]);
+        if dep^.name = Repo then
+          if IsOrphan(Repo, lockFile) then
+          begin
+            // Recursively remove its dependencies
+            if dep^.requires <> nil then
+              while dep^.requires.Count > 0 do
+              begin
+                internal_remove_package(pResolvedDep(dep^.requires[0])^.name, lockFile);
+                dep^.requires.Delete(0);
+              end;
+
+            // Finally, remove the package itself from lock file
+            lockFile^.requires.Delete(i);
+            dispose(dep);
+
+            Break;
+          end;
+      end;
+    end
     else
       writeln('Package "', Repo, '" was not found.');
 
@@ -559,7 +992,7 @@ var
       JsonObj.Free;
     end;
 
-    writeln('You can now run `nova require <vendor/package>` to add dependencies.');
+    writeln('You can now run `nova require <vendor/package>` to add requirements.');
   end;
 
   procedure print_version;
@@ -623,273 +1056,104 @@ var
     end;
   end;
 
-  function nova_require(const packageName, versionConstraint: string;
-  const includeDev: boolean): boolean;
+  function FindOrAddPackage(lockFile: PLockFile;
+  const packageName, versionConstraint: string; const includeDev: boolean;
+    out dep: pResolvedDep): boolean;
   var
-    Version: TVersion;
-    FinalConstraint: string;
-    jsonPkg: TJSONObject;
+    i: integer;
+    existing: pResolvedDep;
+    v: TVersion;
   begin
-    // Skip if package is already found
-    if package_exists('require', packageName) or
-      package_exists('require-dev', packageName) then
+    // Look for existing package in lock file
+    for i := 0 to lockFile^.requires.Count - 1 do
     begin
-      writeln('Package "', packageName, '" is already present. Skipping.');
-      exit(False);
-    end;
-
-    // Determine versionConstraint
-    if versionConstraint <> '' then
-      FinalConstraint := versionConstraint
-    else
-    begin
-      // Resolve version from packageName
-      Version := resolve_version(packageName, versionConstraint);
-
-      // Default: caret constraint on Major.Minor
-      FinalConstraint := Format('^%d.%d', [Version.Major, Version.Minor]);
-    end;
-
-    // Update nova.json
-    if includeDev then
-    begin
-      jsonPkg := TJSONObject(jsonReq.FindPath('require-dev'));
-      if jsonPkg = nil then
+      existing := pResolvedDep(lockFile^.requires[i]);
+      if existing^.name = packageName then
       begin
-        jsonPkg := TJSONObject.Create;
-        jsonReq.Add('require-dev', jsonPkg);
-      end;
-    end
-    else
-    begin
-      jsonPkg := TJSONObject(jsonReq.FindPath('require'));
-      if jsonPkg = nil then
-      begin
-        jsonPkg := TJSONObject.Create;
-        jsonReq.Add('require', jsonPkg);
+        // Conflict: existing version does not satisfy requested constraint
+        if not matches_constraint(parse_version(existing^.Version),
+          versionConstraint) then
+        begin
+          writeln('Error: Dependency conflict for ', packageName);
+          writeln('  Existing: ', existing^.Version,
+            ' (from lock file)');
+          writeln('  Requested: ', versionConstraint,
+            ' (cannot be satisfied)');
+
+          //TODO : review design, still 17 unfreed memory blocks, this design seems to be cumbersome
+          FreeCommands;
+          free_lock_file(lockFile);
+
+          halt(1);
+        end;
+
+        // Already satisfied
+        dep := existing;
+        exit(True);
       end;
     end;
-    jsonPkg.Add(packageName, FinalConstraint);
 
-    writeln('Using version ', FinalConstraint, ' for ', packageName);
+    // If not found then resolve and add
+    v := resolve_constraint(packageName, versionConstraint);
+
+    dep := add_package_to_lock(lockFile, packageName, v, '', '', includeDev);
+
+    Result := False; // means new package added
+  end;
+
+  function internal_require(lockFile: pLockFile;
+  const packageName, versionConstraint: string; out dep: pResolvedDep;
+  const includeDev: boolean): boolean;
+
+    procedure ProcessDependencies(lockFile: PLockFile; depsObj: TJSONObject;
+    const includeDev: boolean);
+    var
+      it:  TJSONEnum;
+      dep: pResolvedDep;
+    begin
+      if not Assigned(depsObj) then exit;
+
+      for it in depsObj do
+        // Recursively install required package
+        internal_require(lockFile, it.Key, it.Value.AsString, dep, includeDev);
+    end;
+
+  var
+    v: TVersion;
+    path, pkgFile: string;
+    pkgJSON: TJSONObject;
+  begin
+    v := resolve_constraint(packageName, versionConstraint);
+
+    // Already present and compatible, nothing to do
+    if FindOrAddPackage(lockFile, packageName, v.constraint, includeDev, dep) then
+      exit(True);
+
+    // Resolve path and install
+    path := VENDOR_DIR + PathDelim + StringReplace(packageName, '/',
+      PathDelim, [rfReplaceAll]);
+    git_clone_or_update(packageName, path, v.name, v.constraint, v.hash);
+
+
+    //check if we need to descend recursively
+    pkgFile := path + PathDelim + DEP_FILE;
+    if fileexists(pkgFile) then
+    begin
+      //load pkgfile
+      pkgJSON := create_or_load_json(pkgFile);
+
+      //process all require packages
+      ProcessDependencies(lockFile, pkgJSON.Objects['require'], False);
+
+      //if includeDev, then process all require-dev packages
+      if includeDev then
+        ProcessDependencies(lockFile, pkgJSON.Objects['require-dev'], True);
+    end;
+
     exit(True);
   end;
 
-  procedure internal_install_packages(const fname: string; pkgs: TFPList;
-  const includeDev: boolean);
-  var
-    RequireObj, DevObj, jsonData: TJSONObject;
-    i:   integer;
-    repo, constraint, path: string;
-    version: TVersion;
-    pkg: pPackage;
-    j:   integer;
-    found, compatible: boolean;
-    SubNova: string;
-  begin
-    jsonData := create_or_load_json(fname);
-
-    // process require
-    RequireObj := TJSONObject(jsonData.FindPath('require'));
-    if RequireObj <> nil then
-      for i := 0 to RequireObj.Count - 1 do
-      begin
-        repo := RequireObj.Names[i];
-        constraint := RequireObj.Items[i].AsString;
-        found := False;
-        compatible := False;
-
-        // Look in existing pkgs (lockfile list)
-        for j := 0 to pkgs.Count - 1 do
-        begin
-          pkg := pPackage(pkgs.Items[j]);
-          if (pkg^.name = repo) then
-          begin
-            found := True;
-            if matches_constraint(pkg^.Version, constraint) then
-            begin
-              compatible := True;
-              if not pkg^.Installed then
-              begin
-                pkg^.Installed := True;
-                // Recursively check subdependencies
-                SubNova :=
-                  VENDOR_DIR + PathDelim + StringReplace(repo,
-                  '/', PathDelim, [rfReplaceAll]) + PathDelim + DEP_FILE;
-                if FileExists(SubNova) then
-                  internal_install_packages(SubNova, pkgs, includeDev);
-              end;
-            end;
-            break;
-          end;
-        end;
-
-        if found and (not compatible) then
-        begin
-          writeln('Version conflict for package ', repo,
-            ' with constraint ', constraint);
-          exit;
-        end;
-
-        if not found then
-        begin
-          // Resolve and install
-          version := resolve_version(repo, constraint);
-          path := VENDOR_DIR + PathDelim + StringReplace(repo,
-            '/', PathDelim, [rfReplaceAll]);
-          git_clone_or_update(repo, path, version);
-
-          New(pkg);
-          pkg^.name := repo;
-          pkg^.Constraint := constraint;
-          pkg^.Version := version;
-          pkg^.Hash := version.Hash;
-          pkg^.includeDev := False;
-          pkg^.Installed := True;
-          pkgs.Add(pkg);
-
-          // Recursively check subdependencies
-          SubNova := path + PathDelim + DEP_FILE;
-          if FileExists(SubNova) then
-            internal_install_packages(SubNova, pkgs, includeDev);
-        end;
-      end;
-
-    // Process require-dev (only if includeDev = True)
-    if includeDev then
-    begin
-      DevObj := TJSONObject(jsonData.FindPath('require-dev'));
-      if DevObj <> nil then
-        for i := 0 to DevObj.Count - 1 do
-        begin
-          repo := DevObj.Names[i];
-          constraint := DevObj.Items[i].AsString;
-          found := False;
-          compatible := False;
-
-          for j := 0 to pkgs.Count - 1 do
-          begin
-            pkg := pPackage(pkgs.Items[j]);
-            if (pkg^.name = repo) then
-            begin
-              found := True;
-              if matches_constraint(pkg^.Version, constraint) then
-              begin
-                compatible := True;
-                if not pkg^.Installed then
-                begin
-                  pkg^.Installed := True;
-                  SubNova :=
-                    VENDOR_DIR + PathDelim + StringReplace(repo,
-                    '/', PathDelim, [rfReplaceAll]) + PathDelim + DEP_FILE;
-                  if FileExists(SubNova) then
-                    internal_install_packages(SubNova, pkgs, includeDev);
-                end;
-              end;
-              break;
-            end;
-          end;
-
-          if found and (not compatible) then
-          begin
-            writeln('Version conflict for dev package ', repo,
-              ' with constraint ', constraint);
-            exit;
-          end;
-
-          if not found then
-          begin
-            version := resolve_version(repo, constraint);
-            path := VENDOR_DIR + PathDelim + StringReplace(repo,
-              '/', PathDelim, [rfReplaceAll]);
-            git_clone_or_update(repo, path, version);
-
-            New(pkg);
-            pkg^.name := repo;
-            pkg^.Constraint := constraint;
-            pkg^.Version := version;
-            pkg^.Hash := version.Hash;
-            pkg^.includeDev := True;
-            pkg^.Installed := True;
-            pkgs.Add(pkg);
-
-            SubNova := path + PathDelim + DEP_FILE;
-            if FileExists(SubNova) then
-              internal_install_packages(SubNova, pkgs, includeDev);
-          end;
-        end;
-    end;
-
-    jsonData.Free;
-  end;
-
-  procedure purge_vendor_folder(pkgs: TFPList);
-  // Delete parent folders up to VENDOR_DIR if they are empty
-    procedure purge_empty_parent(Dir: string);
-    var
-      sr:      TSearchRec;
-      parent:  string;
-      isEmpty: boolean;
-    begin
-      parent := ExtractFileDir(Dir); // Go one level up (package_vendor)
-
-      // Stop if we are at vendor root or above
-      if (parent = '') or (ExpandFileName(parent) = ExpandFileName(VENDOR_DIR)) then
-        exit;
-
-      // Check if parent is empty
-      isEmpty := True;
-      if FindFirst(parent + PathDelim + '*', faAnyFile, sr) = 0 then
-      begin
-        repeat
-          if (sr.name <> '.') and (sr.name <> '..') then
-          begin
-            isEmpty := False;
-            break;
-          end;
-        until FindNext(sr) <> 0;
-        FindClose(sr);
-      end;
-
-      // Remove parent if empty
-      if isEmpty then
-        RemoveDir(parent);
-    end;
-
-  var
-    Repo, Path: string;
-    i:   integer;
-    pkg: pPackage;
-  begin
-    // Purge vendor folder from all orphaned packages
-    for i := 0 to pkgs.Count - 1 do
-    begin
-      pkg := pPackage(pkgs[i]);
-
-      if not pkg^.installed then
-      begin
-        repo := pkg^.name;
-
-        Path := VENDOR_DIR + PathDelim + StringReplace(Repo, '/',
-          PathDelim, [rfReplaceAll]);
-
-        if DirectoryExists(Path) then
-        begin
-          {$IFDEF WINDOWS}
-        run_and_capture('rmdir', ['/S','/Q',Path]);
-          {$ELSE}
-          run_and_capture('rm', ['-rf', Path]);
-          {$ENDIF}
-          writeln('Deleted vendor files for "', Repo, '".');
-
-          // try to delete empty parents up to VENDOR_DIR
-          purge_empty_parent(Path);
-        end;
-      end;
-    end;
-  end;
-
-  procedure print_dependency_tree(const Repo: string; const Prefix: string;
+   procedure print_dependency_tree(const Repo: string; const Prefix: string;
     isDev: boolean);
   var
     Path, DepFile: string;
@@ -1037,22 +1301,22 @@ var
 
   function HasOption(const optName: string): boolean;
   var
-    i:   integer;
+    i: integer;
   begin
     for i := 1 to argc - 1 do
-    begin
       if argv[i] = optName then
         exit(True);
-    end;
     exit(False);
   end;
 
   procedure CmdRequire(cmd: pCommand);
   var
-    i:     integer;
-    package, version: string;
+    i:      integer;
     includeDev: boolean;
-    added: boolean = False;
+    change: boolean = False;
+    packageName, versionConstraint: string;
+    pkgs:   pLockFile;
+    dep:    pResolvedDep;
   begin
     if argc < 2 then
     begin
@@ -1062,6 +1326,8 @@ var
 
     includeDev := HasOption('--dev');
 
+    pkgs := load_lock_file;
+
     for i := 2 to argc do
     begin
       // Ignore the --dev argument
@@ -1069,74 +1335,95 @@ var
 
       if argv[i] <> '' then
       begin
-        split_package_spec(argv[i], package, version);
+        split_package_spec(argv[i], packageName, versionConstraint);
+        if not package_already_registered(packageName) then
+          if internal_require(pkgs, packageName, versionConstraint, dep, includeDev) then
+          begin
+            change := True;
 
-        if nova_require(package, version, includeDev) then
-          added := True;
+            update_requirements_file(packageName, dep^.constraint, includeDev);
+          end;
       end;
     end;
 
-    if added then
+    if change then
     begin
       save_json(DEP_FILE, jsonReq);
-      writeln('Run `nova install [--dev]` to install dependencies and complete setup.');
+      write_fpc_config(pkgs);
+      save_lock_file(pkgs);
     end;
+
+    free_lock_file(pkgs);
   end;
 
   procedure CmdRemove(cmd: pCommand);
   var
-    i: integer;
-    removed: boolean;
+    i:    integer;
+    removed: boolean = False;
+    pkgs: pLockFile;
   begin
     if argc < 2 then
-      writeln('Please specify package(s) to remove.')
-    else
-      for i := 2 to argc do
-        if (argv[i] <> '') and internal_remove_package(argv[i]) then
-          removed := True;
+    begin
+      writeln('Please specify package(s) to remove.');
+      exit;
+    end;
+
+    pkgs := load_lock_file;
+
+    for i := 2 to argc do
+      if (argv[i] <> '') and internal_remove_package(argv[i], pkgs) then
+        removed := True;
 
     if removed then
     begin
       save_json(DEP_FILE, jsonReq);
-      writeln('Run `nova install [--dev]` to update and clean up dependencies.');
+      write_fpc_config(pkgs);
+      purge_vendor_folder(pkgs);
+      save_lock_file(pkgs);
     end;
+
+    free_lock_file(pkgs);
   end;
 
-  procedure CmdInstall(cmd: pCommand);
-  var
-    includeDev: boolean;
-    pkgs: TFPList;
-    jsonLock: TJSONObject;
-    i: integer;
+procedure CmdInstall(cmd: pCommand);
+var
+  includeDev: Boolean;
+  lockFile: pLockFile;
+  i: Integer;
+  dep: pResolvedDep;
+  path: string;
+begin
+  includeDev := HasOption('--dev');
+
+  // Load lock file
+  lockFile := load_lock_file;
+
+  // Install all first-level dependencies (top-level in lock)
+  for i := 0 to lockFile^.requires.Count - 1 do
   begin
-    includeDev := HasOption('--dev');
+    dep := pResolvedDep(lockFile^.requires[i]);
 
-    pkgs := TFPList.Create;
-    jsonLock := create_or_load_json(LOCK_FILE);
-    read_lock_file(jsonLock, pkgs);
+    // Skip dev dependencies if --dev not specified
+    if dep^.dev and not includeDev then
+      Continue;
 
-    // Run internal install package procedure recursively, start with base nova.json
-    internal_install_packages(DEP_FILE, pkgs, includeDev);
+    // Compute vendor path
+    path := IncludeTrailingPathDelimiter(VENDOR_DIR) +
+                StringReplace(dep^.Name, '/', PathDelim, [rfReplaceAll]);
 
-    write_fpc_config(pkgs);
-
-    purge_vendor_folder(pkgs);
-
-    write_lock_file(jsonLock, pkgs);
-
-    jsonLock.Free;
-
-    // Free all packages within the list
-    for i := 0 to pkgs.Count - 1 do
-      Dispose(pPackage(pkgs[i]));
-    pkgs.Free;
-
-    writeln('Run `nova install [--dev]` to update and clean up dependencies.');
+    // Install via git clone or update
+    git_clone_or_update(dep^.Name, path, dep^.version, dep^.constraint, dep^.commit);
   end;
+
+  write_fpc_config(lockFile);
+
+  // Free lock file and all package entries
+  free_lock_file(lockFile);
+end;
 
   procedure CmdUpdate(cmd: pCommand);
   var
-    includeDev: Boolean;
+    includeDev: boolean;
   begin
     includeDev := HasOption('--dev');
   end;
@@ -1155,25 +1442,25 @@ begin
   // Register commands
   RegisterCommand('init', 'Initialize a new project interactively', @CmdInit);
 
-  cmdRec := RegisterCommand('require', 'Add one or more packages as dependencies',
+  cmdRec := RegisterCommand('require', 'Add one or more packages as requirement',
     @CmdRequire);
-  RegisterOption(cmdRec, '--dev', 'Include packages as development dependencies');
+  RegisterOption(cmdRec, '--dev', 'Include packages as development requirement');
 
   RegisterCommand('remove', 'Remove one or more packages', @CmdRemove);
 
-  cmdRec := RegisterCommand('update', 'Update dependency versions and regenerate the lockfile.', @CmdUpdate);
-  RegisterOption(cmdRec, '--dev', 'Include development dependencies');
+  cmdRec := RegisterCommand('update',
+    'Update dependency versions and regenerate the lockfile.', @CmdUpdate);
+  RegisterOption(cmdRec, '--dev', 'Include as development requirement');
 
-  cmdRec := RegisterCommand('install', 'Install all dependencies and update lock file',
+  cmdRec := RegisterCommand('install', 'Install all requirements and update lock file',
     @CmdInstall);
-  RegisterOption(cmdRec, '--dev', 'Include development dependencies');
+  RegisterOption(cmdRec, '--dev', 'Include packages as development requirement');
 
   cmdRec := RegisterCommand('show', 'Show installed packages', @CmdShow);
   RegisterOption(cmdRec, '--tree', 'Show dependency tree instead of flat list');
 
   // Check for global help
   for i := 1 to argc - 1 do  // skip argv[0] which is program name
-  begin
     if (argv[i] = '-h') or (argv[i] = '--help') then
     begin
       print_usage;
@@ -1187,7 +1474,6 @@ begin
       FreeCommands;
       halt(-1);
     end;
-  end;
 
   if argc < 1 then
     print_usage;
