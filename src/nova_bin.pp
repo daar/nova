@@ -997,7 +997,7 @@ end;
 
   procedure print_version;
   begin
-    writeln('nova v', NOVA_VERSION);
+    writeln('nova ', NOVA_VERSION);
   end;
 
   procedure print_usage;
