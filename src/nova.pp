@@ -13,7 +13,7 @@ uses
   SysUtils;
 
 const
-  GITHUB_API = 'https://api.github.com/repos/composer/composer/releases/latest';
+  GITHUB_API = 'https://api.github.com/repos/daar/nova/releases/latest';
 
   {$IFDEF WINDOWS}
   NOVA_BIN = './nova_bin.exe';
