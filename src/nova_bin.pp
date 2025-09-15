@@ -1422,10 +1422,67 @@ begin
 end;
 
   procedure CmdUpdate(cmd: pCommand);
+
+  function internal_update(var lockFile: pLockFile; packageName, versionConstraint: string; includeDev: boolean): boolean;
   var
-    includeDev: boolean;
+    dep: pResolvedDep;
   begin
-    includeDev := HasOption('--dev');
+    Result := internal_require(lockFile, packageName, versionConstraint, dep, includeDev);
+  end;
+
+  var
+    change: boolean;
+    lockFile: pLockFile;
+    requires, devRequires: TJSONObject;
+    i: Integer;
+    packageName, versionConstraint: String;
+  begin
+     //create empty lock file data structure
+      New(lockFile);
+      lockFile^.RootName := jsonReq.Get('name', '');
+      lockFile^.RootVersion := jsonReq.Get('version', '');
+      lockFile^.requires := TFPList.Create;
+
+      // Process "require" section
+      if jsonReq.Find('require') <> nil then
+begin
+      requires := jsonReq.Objects['require'];
+      if Assigned(requires) then
+      begin
+        for i := 0 to requires.Count - 1 do
+        begin
+          packageName := requires.Names[i];
+          versionConstraint := requires.Get(packageName, '');
+          if internal_update(lockFile, packageName, versionConstraint, False) then
+            change := True;
+        end;
+      end;
+      end;
+
+      // Process "require-dev" section
+      if jsonReq.Find('require-dev') <> nil then
+begin
+      devRequires := jsonReq.Objects['require-dev'];
+      if Assigned(devRequires) then
+      begin
+        for i := 0 to devRequires.Count - 1 do
+        begin
+          packageName := devRequires.Names[i];
+          versionConstraint := devRequires.Get(packageName, '');
+          if internal_update(lockFile, packageName, versionConstraint, True) then
+            change := True;
+        end;
+      end;
+      end;
+
+    if change then
+    begin
+      save_json(DEP_FILE, jsonReq);
+      write_fpc_config(lockFile);
+      save_lock_file(lockFile);
+    end;
+
+    free_lock_file(lockFile);
   end;
 
   procedure CmdShow(cmd: pCommand);
