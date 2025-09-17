@@ -1,0 +1,16 @@
+{
+  "name" : "",
+  "version" : "",
+  "requires" : {
+    "daar/termstyle" : {
+      "constraint" : "^0.1",
+      "version" : "v0.1.1",
+      "commit" : "afbb9f01b6717de9efb7c8ca9fde7418c1f9c37b",
+      "repo" : "",
+      "source" : "",
+      "dev" : false,
+      "bin" : {},
+      "requires" : {}
+    }
+  }
+}
