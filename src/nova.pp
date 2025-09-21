@@ -113,7 +113,7 @@ const
   end;
 
   // Run nova_bin with all CLI arguments
-  procedure RunNova(const Args: array of string);
+  procedure RunNova;
   var
     P: TProcess;
     i: integer;
@@ -129,8 +129,10 @@ const
     try
       try
         P.Executable := NOVA_BIN;
-        for i := 0 to High(Args) do
-          P.Parameters.Add(Args[i]);
+
+        for i := 1 to ParamCount do
+          P.Parameters.Add(ParamStr(i));
+
         P.Options := [];
         P.Execute;
         P.WaitOnExit;
@@ -156,11 +158,7 @@ begin
     ExtractUpdate;
     ShowMessage;
 
-    SetLength(Args, ParamCount);
-    for i := 1 to ParamCount do
-      Args[i - 1] := ParamStr(i);
-
-    RunNova(Args);
+    RunNova;
   except
     on E: Exception do
     begin
