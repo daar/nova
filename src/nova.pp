@@ -150,9 +150,6 @@ const
     end;
   end;
 
-var
-  Args: array of string;
-  i:    integer;
 begin
   try
     ExtractUpdate;
