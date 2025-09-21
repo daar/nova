@@ -1,5 +1,5 @@
 {
   "require" : {
-    "daar/termstyle" : "^0.1"
+    "daar/termstyle" : "^0.2"
   }
 }

@@ -3,9 +3,9 @@
   "version" : "",
   "requires" : {
     "daar/termstyle" : {
-      "constraint" : "^0.1",
-      "version" : "v0.1.1",
-      "commit" : "afbb9f01b6717de9efb7c8ca9fde7418c1f9c37b",
+      "constraint" : "^0.2",
+      "version" : "v0.2.2",
+      "commit" : "b2203c61087760f0f28a9892f6772b41d3412314",
       "repo" : "",
       "source" : "",
       "dev" : false,

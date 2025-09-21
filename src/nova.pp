@@ -24,7 +24,7 @@ const
   begin
     if FileExists(FileName) then
       if not DeleteFile(FileName) then
-        tsWarn('Could not remove ' + FileName);
+        warning('Could not remove <b>' + FileName + '</b>');
   end;
 
   // Extract update zip and handle rollback
@@ -40,7 +40,7 @@ const
       SafeDelete(NOVA_BAK);
       if not RenameFile(NOVA_BIN, NOVA_BAK) then
       begin
-        tsError('Backup failed, cannot apply update.');
+        error('Backup failed, cannot apply update.');
         Halt(1);
       end;
     end;
@@ -51,7 +51,7 @@ const
         Z.FileName := UPDATE_ZIP;
         Z.OutputPath := '.';
         Z.UnZipAllFiles;
-        tsSuccess('Update applied from ' + UPDATE_ZIP);
+        success('Update applied from <b>' + UPDATE_ZIP + '</b>');
 
         // Cleanup after successful update
         SafeDelete(UPDATE_ZIP);
@@ -59,7 +59,7 @@ const
       except
         on E: Exception do
         begin
-          tsError('Update failed: ' + E.Message);
+          error('Update failed: <i>' + E.Message + '</i>');
 
           // Delete broken zip to prevent repeated failures
           SafeDelete(UPDATE_ZIP);
@@ -69,11 +69,11 @@ const
           begin
             SafeDelete(NOVA_BIN);
             RenameFile(NOVA_BAK, NOVA_BIN);
-            tsWarn('Rollback completed: previous version restored. Update ZIP has been removed.');
+            warning('Rollback completed: previous version restored. Update ZIP has been removed.');
 
-            writeln(ts(
-              '  You can safely attempt <bold><italic>nova self-update</italic></bold> again.'));
-            writeln(ts(
+            writeln(render(
+              '  You can safely attempt <b><i>nova self-update</i></b> again.'));
+            writeln(render(
               '  If the update fails repeatedly, it is recommended to perform a fresh installation.'));
           end;
 
@@ -93,7 +93,7 @@ const
   begin
     if not FileExists(MSG_FILE) then Exit;
 
-    tsBanner('<bright_white bg:bright_red>', '</bright_white>', 'IMPORTANT NOTICE');
+    banner('<span class="text-white bg-red-500">', '</span>', 'IMPORTANT NOTICE');
     writeln;
 
     AssignFile(F, MSG_FILE);
@@ -102,13 +102,13 @@ const
       while not EOF(F) do
       begin
         ReadLn(F, Line);
-        writeln(ts(Line)); // styled via tags inside nova.msg
+        writeln(render(Line)); // styled via tags inside nova.msg
       end;
       CloseFile(F);
       writeln;
     except
       on E: Exception do
-        tsWarn('Could not read ' + MSG_FILE + ': ' + E.Message);
+        warning('Could not read <b>' + MSG_FILE + '</b>: <i>' + E.Message + '</i>');
     end;
   end;
 
@@ -120,7 +120,7 @@ const
   begin
     if not FileExists(NOVA_BIN) then
     begin
-      tsError('Missing executable: ' + NOVA_BIN);
+      error('Missing executable: <span class="bold">' + NOVA_BIN + '</span>');
       halt(1);
     end;
 
@@ -138,7 +138,7 @@ const
       except
         on E: Exception do
         begin
-          tsError('Failed to run nova_bin: ' + E.Message);
+          error('Failed to run <span class="bold">' + NOVA_BIN + '</span>: <i>' + E.Message + '</i>');
           P.Free;
           halt(1);
         end;
@@ -164,7 +164,7 @@ begin
   except
     on E: Exception do
     begin
-      tsError('Unexpected fatal error: ' + E.Message);
+      error('Unexpected fatal error: <i>' + E.Message + '</i>');
       halt(1);
     end;
   end;
