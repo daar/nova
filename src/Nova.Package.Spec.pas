@@ -26,7 +26,7 @@ type
   { TNovaPkgSpec }
 
   TNovaPkgSpec = class
-    name: string;
+    Name: string;
     License: string;
     AuthorName: string;
     AuthorEmail: string;
@@ -186,7 +186,7 @@ var
 begin
   inherited Create;
 
-  name := DefaultPackageName;
+  Name := DefaultPackageName;
   License := '';
   AuthorName := DefaultAuthor;
   AuthorEmail := DefaultEmail;
