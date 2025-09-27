@@ -6,40 +6,39 @@ interface
 
 uses
   Classes,
-  SysUtils,
-  Nova.Command;
+  Nova.Command, SysUtils;
 
 type
 
-{ TInitCommand }
+  { TInitCommand }
 
-TInitCommand = class(TBaseCommand)
-public
-  procedure Execute; override;
-  function name: string; override;
-  function Description: string; override;
-private
-  function DefaultPackageName: string;
-  function DefaultAuthor: string;
-  function DefaultEmail: string;
+  TInitCommand = class(TBaseCommand)
+  public
+    procedure Execute; override;
+    function name: string; override;
+    function Description: string; override;
+  private
+    function DefaultPackageName: string;
+    function DefaultAuthor: string;
+    function DefaultEmail: string;
 
-  function FirstMeaningfulLine(const FileName: string): string;
-  function IsProgramFile(const FileName: string): Boolean;
-  function FindProgramRecursive(const Folder, Ext: string): string;
-public
-  function FindDefaultProgramFile(const Folder: string): string;
-end;
+    function FirstMeaningfulLine(const FileName: string): string;
+    function IsProgramFile(const FileName: string): boolean;
+    function FindProgramRecursive(const Folder, Ext: string): string;
+  public
+    function FindDefaultProgramFile(const Folder: string): string;
+  end;
 
 implementation
 
 uses
   fpjson,
+  GitCLI,
   jsonscanner,
   process,
-  GitCLI,
   TermStyle;
 
-{ TInitCommand }
+  { TInitCommand }
 
 procedure TInitCommand.Execute;
 var
@@ -287,19 +286,21 @@ end;
 
 function TInitCommand.FirstMeaningfulLine(const FileName: string): string;
 var
-  F: TextFile;
+  F:    TextFile;
   Line: string;
-  InBlock: Boolean;
+  InBlock: boolean;
 begin
   Result := '';
   InBlock := False;
 
   AssignFile(F, FileName);
-  {$I-} Reset(F); {$I+}
+  {$I-}
+  Reset(F);
+  {$I+}
   if IOResult <> 0 then Exit;
 
   try
-    while not Eof(F) do
+    while not EOF(F) do
     begin
       ReadLn(F, Line);
       Line := Trim(Line);
@@ -336,7 +337,7 @@ begin
   end;
 end;
 
-function TInitCommand.IsProgramFile(const FileName: string): Boolean;
+function TInitCommand.IsProgramFile(const FileName: string): boolean;
 var
   FirstLine: string;
 begin
@@ -350,24 +351,22 @@ var
 begin
   Result := '';
   if FindFirst(IncludeTrailingPathDelimiter(Folder) + '*', faAnyFile, SR) = 0 then
-  repeat
-    if (SR.Name = '.') or (SR.Name = '..') then Continue;
+    repeat
+      if (SR.Name = '.') or (SR.Name = '..') then Continue;
 
-    if (SR.Attr and faDirectory) <> 0 then
-    begin
-      // search subdirectory
-      Result := FindProgramRecursive(Folder + PathDelim + SR.Name, Ext);
-      if Result <> '' then Break;
-    end
-    else if Lowercase(ExtractFileExt(SR.Name)) = Ext.ToLower then
-    begin
-      if IsProgramFile(Folder + PathDelim + SR.Name) then
+      if (SR.Attr and faDirectory) <> 0 then
       begin
-        Result := Folder + PathDelim + SR.Name;
-        Break;
-      end;
-    end;
-  until FindNext(SR) <> 0;
+        // search subdirectory
+        Result := FindProgramRecursive(Folder + PathDelim + SR.Name, Ext);
+        if Result <> '' then Break;
+      end
+      else if Lowercase(ExtractFileExt(SR.Name)) = Ext.ToLower then
+        if IsProgramFile(Folder + PathDelim + SR.Name) then
+        begin
+          Result := Folder + PathDelim + SR.Name;
+          Break;
+        end;
+    until FindNext(SR) <> 0;
   FindClose(SR);
 end;
 
@@ -380,4 +379,3 @@ begin
 end;
 
 end.
-
