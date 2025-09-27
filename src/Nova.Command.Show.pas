@@ -25,7 +25,7 @@ type
     procedure FreeLockFile;
     procedure PrintDependencies;
     procedure PrintDependency(const Dep: TDependency; IsDev: Boolean; Indent: string = '');
-    procedure PrintDependencyTree(const Dep: TDependency; Indent: string = '');
+    procedure PrintDependencyTree(const Dep: TDependency; const Indent: string = '');
     function FormatConstraint(const Dep: TDependency): string;
     function FormatVersion(const Repo: string; out Commit: string; out Installed: Boolean): string;
   public
@@ -37,9 +37,6 @@ type
   end;
 
 implementation
-
-//uses
-//  Nova.Utils;
 
 { TShowCommand }
 
@@ -65,7 +62,7 @@ begin
   if not FileExists(DEP_FILE) then
     raise Exception.Create('No ' + DEP_FILE + ' found. Run "nova init" first.');
 
-  FSpec.LoadFromFile;
+  FSpec.LoadFromFile(DEP_FILE);
 end;
 
 procedure TShowCommand.LoadLockFile;
@@ -150,16 +147,66 @@ begin
     PrintDependencyTree(Dep, Indent + '   ');
 end;
 
-procedure TShowCommand.PrintDependencyTree(const Dep: TDependency; Indent: string = '');
+procedure TShowCommand.PrintDependencyTree(const Dep: TDependency; const Indent: string = '');
 var
+  DepSpec: TNovaPkgSpec;
+  DepLock: TJSONObject;
+  RequiresObj: TJSONObject;
+  DepPath, FileName: string;
+  Keys: TStringList;
   i: Integer;
+  Child: TDependency;
+  ms: TMemoryStream;
 begin
-  for i := 0 to Dep.Spec.RequireCount - 1 do
-    PrintDependency(Dep.Spec.RequireAt(i), False, Indent);
+  // Assume dependency repos are installed in ./vendor/<name>/
+  DepPath := IncludeTrailingPathDelimiter('vendor' + PathDelim + Dep.Name);
 
-  for i := 0 to Dep.Spec.RequireDevCount - 1 do
-    PrintDependency(Dep.Spec.RequireDevAt(i), True, Indent);
+  FileName := DepPath + 'nova.json';
+  DepSpec := TNovaPkgSpec.Create;
+  DepSpec.LoadFromFile(FileName);
+
+  // Load lock file if present
+  DepLock := nil;
+  if FileExists(DepPath + 'nova.lock') then
+  begin
+        ms := TMemoryStream.Create;
+    try
+      ms.LoadFromFile(DepPath + 'nova.lock');
+      DepLock := TJSONObject(GetJson(ms));
+    finally
+      ms.Free;
+    end;
+  end;
+
+  try
+    // Print normal requires
+    if Assigned(DepLock) and (DepLock.Find('requires') <> nil) then
+    begin
+      RequiresObj := DepLock.Objects['requires'];
+      for i := 0 to RequiresObj.Count - 1 do
+      begin
+        Child.Name := RequiresObj.Names[i];
+        Child.Constraint := RequiresObj.Objects[Child.Name].Get('constraint', '');
+        PrintDependency(Child, False, Indent + '  ');
+      end;
+    end;
+
+    // Print dev requires
+    if Assigned(DepLock) and (DepLock.Find('require-dev') <> nil) then
+    begin
+      RequiresObj := DepLock.Objects['require-dev'];
+      for i := 0 to RequiresObj.Count - 1 do
+      begin
+        Child.Name := RequiresObj.Names[i];
+        Child.Constraint := RequiresObj.Objects[Child.Name].Get('constraint', '');
+        PrintDependency(Child, True, Indent + '  ');
+      end;
+    end;
+  finally
+    DepLock.Free;
+  end;
 end;
+
 
 procedure TShowCommand.PrintDependencies;
 var

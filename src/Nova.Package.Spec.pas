@@ -43,7 +43,7 @@ type
     constructor Create;
 
     procedure CreateDefault;
-    procedure LoadFromFile;
+    procedure LoadFromFile(const FullFileName: string);
     procedure SaveToFile;
 
     procedure AddAuthor(const AName, AEmail: string);
@@ -195,7 +195,7 @@ begin
 
 end;
 
-procedure TNovaPkgSpec.LoadFromFile;
+procedure TNovaPkgSpec.LoadFromFile(const FullFileName: string);
 var
   Data: TJSONData;
   O, RawO: TJSONObject;
@@ -203,7 +203,7 @@ var
   Raw:  TJSONArray;
   i:    integer;
 begin
-  if not FileExists(DEP_FILE) then Exit;
+  if not FileExists(FullFileName) then Exit;
 
   S := TStringList.Create;
   try
