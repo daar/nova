@@ -1,5 +1,6 @@
 {
   "require" : {
-    "daar/termstyle" : "^0.2"
+    "daar/termstyle" : "^0.3",
+    "daar/taplib" : "^0.0"
   }
 }
