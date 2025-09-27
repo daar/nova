@@ -14,15 +14,13 @@ const
   DEP_FILE = 'nova.json';
 
 type
-  TNovaPkgSpec = class;
-
   TAuthor = record
     Name: string;
     Email: string;
   end;
 
   TDependency = record
-    Spec: TNovaPkgSpec;
+    Name: string;
     Constraint: string;
   end;
 
@@ -42,9 +40,6 @@ type
     RequireDev: TDependencies;
     Source: array of string;
 
-    FileName: string;
-    ProgramFile: string;
-
     constructor Create;
 
     procedure CreateDefault;
@@ -55,6 +50,9 @@ type
     function DefaultAuthorName: string;
     function DefaultAuthorEmail: string;
 
+    procedure AddProgramFile(const AFileName: string);
+    function DefaultProgramFile(const Folder: string = ''): string;
+
     function RequireCount: integer;
     function RequireAt(Index: integer): TDependency;
     function RequireDevCount: integer;
@@ -63,7 +61,6 @@ type
     function DefaultPackageName: string;
   end;
 
-function FindDefaultProgramFile(const Folder: string): string;
 
 implementation
 
@@ -160,35 +157,26 @@ begin
   Result := '';
   if FindFirst(IncludeTrailingPathDelimiter(Folder) + '*', faAnyFile, SR) = 0 then
     repeat
-      if (SR.name = '.') or (SR.name = '..') then Continue;
+      if (SR.Name = '.') or (SR.Name = '..') then Continue;
 
       if (SR.Attr and faDirectory) <> 0 then
       begin
-        Result := FindProgramRecursive(Folder + PathDelim + SR.name, Ext);
+        Result := FindProgramRecursive(Folder + PathDelim + SR.Name, Ext);
         if Result <> '' then Break;
       end
-      else if LowerCase(ExtractFileExt(SR.name)) = LowerCase(Ext) then
-        if IsProgramFile(Folder + PathDelim + SR.name) then
+      else if LowerCase(ExtractFileExt(SR.Name)) = LowerCase(Ext) then
+        if IsProgramFile(Folder + PathDelim + SR.Name) then
         begin
-          Result := Folder + PathDelim + SR.name;
+          Result := Folder + PathDelim + SR.Name;
           Break;
         end;
     until FindNext(SR) <> 0;
   FindClose(SR);
 end;
 
-function FindDefaultProgramFile(const Folder: string): string;
-begin
-  Result := FindProgramRecursive(Folder, '.pp');
-  if Result = '' then
-    Result := FindProgramRecursive(Folder, '.pas');
-end;
-
 { === TNovaPkgSpec === }
 
 constructor TNovaPkgSpec.Create;
-var
-  Folder: string;
 begin
   inherited Create;
 
@@ -196,18 +184,10 @@ begin
   License := '';
   Description := '';
   PackageType := 'library';
+  SetLength(Authors, 0);
   SetLength(Require, 0);
   SetLength(RequireDev, 0);
   SetLength(Source, 0);
-  FileName := DEP_FILE;
-
-  if DirectoryExists('./src') then Folder := './src'
-  else
-  if DirectoryExists('./source') then Folder := './source'
-  else
-    Folder := '.';
-
-  ProgramFile := FindDefaultProgramFile(Folder);
 end;
 
 procedure TNovaPkgSpec.CreateDefault;
@@ -218,16 +198,16 @@ end;
 procedure TNovaPkgSpec.LoadFromFile;
 var
   Data: TJSONData;
-  O:    TJSONObject;
+  O, RawO: TJSONObject;
   S:    TStringList;
-  AuthorRaw: string;
+  Raw:  TJSONArray;
+  i:    integer;
 begin
-  if FileName = '' then FileName := DEP_FILE;
-  if not FileExists(FileName) then Exit;
+  if not FileExists(DEP_FILE) then Exit;
 
   S := TStringList.Create;
   try
-    S.LoadFromFile(FileName);
+    S.LoadFromFile(DEP_FILE);
     Data := GetJSON(S.Text);
   finally
     S.Free;
@@ -237,37 +217,55 @@ begin
     if not (Data is TJSONObject) then Exit;
     O := TJSONObject(Data);
 
-    name := O.Get('name', '');
+    Name := O.Get('name', '');
     License := O.Get('license', '');
 
     // Read the array of name / email from authors
     if O.Find('authors') <> nil then
     begin
-      // Raw := O.Arrays['authors'];
-      // Authors := ...
+      Raw := O.Arrays['authors'];
+      SetLength(Authors, Raw.Count);
+      for i := 0 to Raw.Count - 1 do
+        if Raw.Items[i] is TJSONObject then
+        begin
+          Authors[i].Name := TJSONObject(Raw.Items[i]).Get('name', '');
+          Authors[i].Email := TJSONObject(Raw.Items[i]).Get('email', '');
+        end;
     end;
 
     Description := O.Get('description', '');
     PackageType := O.Get('type', '');
 
     // Read the required packages array
-    if O.Find('required') <> nil then
+    if O.Find('require') <> nil then
     begin
-      // Raw := O.Arrays['required'];
-      // Required := ...
+      RawO := O.Objects['require'];
+      SetLength(Require, RawO.Count);
+      for i := 0 to RawO.Count - 1 do
+      begin
+        Require[i].Name := RawO.Names[i];
+        Require[i].Constraint := RawO.Items[i].AsString;
+      end;
     end;
 
     // Read the required-dev packages array
-    if O.Find('required-dev') <> nil then
+    if O.Find('require-dev') <> nil then
     begin
-      // Raw := O.Arrays['required-dev'];
-      // RequiredDev := ...
+      RawO := O.Objects['require-dev'];
+      SetLength(RequireDev, RawO.Count);
+      for i := 0 to RawO.Count - 1 do
+      begin
+        RequireDev[i].Name := RawO.Names[i];
+        RequireDev[i].Constraint := RawO.Items[i].AsString;
+      end;
     end;
 
     if O.Find('source') <> nil then
     begin
-      // Raw := O.Arrays['source'];
-      // Source := ...
+      Raw := O.Arrays['source'];
+      SetLength(Source, Raw.Count);
+      for i := 0 to Raw.Count - 1 do
+        Source[i] := Raw.Items[i].AsString;
     end;
 
   finally
@@ -277,16 +275,14 @@ end;
 
 procedure TNovaPkgSpec.SaveToFile;
 var
-  O, AuthorObj: TJSONObject;
+  O, AuthorObj, DepObj: TJSONObject;
   S: TStringList;
-  AuthorsArray: TJSONArray;
+  AuthorsArray, A: TJSONArray;
   i: integer;
 begin
-  if FileName = '' then FileName := DEP_FILE;
-
   O := TJSONObject.Create;
   try
-    O.Add('name', name);
+    O.Add('name', Name);
 
     if Description <> '' then
       O.Add('description', Description);
@@ -312,17 +308,55 @@ begin
       O.Add('authors', AuthorsArray);
     end;
 
-    O.Add('require', TJSONObject.Create);
+    // Save the require packages
+    if Length(Require) > 0 then
+    begin
+      A := TJSONArray.Create;
+      for i := 0 to High(Require) do
+      begin
+        DepObj := TJSONObject.Create;
+        DepObj.Add('name', Require[i].Name);
+        DepObj.Add('constraint', Require[i].Constraint);
+        A.Add(DepObj);
+      end;
+      O.Add('require', A);
+    end
+    else
+      O.Add('require', TJSONObject.Create);
+
+    // Save the require-dev packages
+    if Length(RequireDev) > 0 then
+    begin
+      A := TJSONArray.Create;
+      for i := 0 to High(RequireDev) do
+      begin
+        DepObj := TJSONObject.Create;
+        DepObj.Add('name', RequireDev[i].Name);
+        DepObj.Add('constraint', RequireDev[i].Constraint);
+        A.Add(DepObj);
+      end;
+      O.Add('require-dev', A);
+    end;
     O.Add('require-dev', TJSONObject.Create);
 
-    if (PackageType = 'project') and (ProgramFile <> '') then
-      O.Add('source', StringArrayToJSONArray([ProgramFile]));
+    //if (PackageType = 'project') and (ProgramFile <> '') then
+    //  O.Add('source', StringArrayToJSONArray([ProgramFile]));
+    //
+    //qqq
+    if Length(Source) > 0 then
+begin
+  A := TJSONArray.Create;
+  for i := 0 to High(Source) do
+    A.Add(Source[i]);
+  O.Add('source', A);
+end;
+
 
     // Save JSON object
     S := TStringList.Create;
     try
       S.Text := O.FormatJSON;
-      S.SaveToFile(FileName);
+      S.SaveToFile(DEP_FILE);
     finally
       S.Free;
     end;
@@ -340,8 +374,8 @@ begin
 
   with Authors[len] do
   begin
-    Name:= AName;
-    Email:= AEmail;
+    Name := AName;
+    Email := AEmail;
   end;
 end;
 
@@ -502,6 +536,36 @@ begin
   finally
     Git.Free;
   end;
+end;
+
+procedure TNovaPkgSpec.AddProgramFile(const AFileName: string);
+var
+  len: integer;
+begin
+  len := Length(Source);
+  SetLength(Source, len + 1);
+
+  Source[len] := AFileName;
+end;
+
+function TNovaPkgSpec.DefaultProgramFile(const Folder: string = ''): string;
+var
+  SearchFolder: string;
+begin
+  if Folder = '' then
+  begin
+    if DirectoryExists('./src') then SearchFolder := './src'
+    else
+      if DirectoryExists('./source') then SearchFolder := './source'
+        else
+          SearchFolder := '.';
+  end
+  else
+    SearchFolder := Folder;
+
+  Result := FindProgramRecursive(SearchFolder, '.pp');
+  if Result = '' then
+    Result := FindProgramRecursive(SearchFolder, '.pas');
 end;
 
 end.

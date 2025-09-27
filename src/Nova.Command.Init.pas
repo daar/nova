@@ -59,7 +59,7 @@ begin
     Spec.License := Prompt('License', Spec.License, 'ml-2');
 
     if Spec.PackageType = 'project' then
-      Spec.ProgramFile := Prompt('Project file', Spec.ProgramFile, 'ml-2');
+      Spec.AddProgramFile(Prompt('Project file', Spec.DefaultProgramFile, 'ml-2'));
 
     Spec.SaveToFile;
 
