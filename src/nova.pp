@@ -5,7 +5,7 @@ program nova;
 uses
   process,
   SysUtils,
-  termstyle,
+  TermStyle,
   zipper;
 
 const
@@ -93,7 +93,7 @@ const
   begin
     if not FileExists(MSG_FILE) then Exit;
 
-    banner('<span class="text-white bg-red-500">', '</span>', 'IMPORTANT NOTICE');
+    banner('IMPORTANT NOTICE', 'text-white bg-red-500');
     writeln;
 
     AssignFile(F, MSG_FILE);
