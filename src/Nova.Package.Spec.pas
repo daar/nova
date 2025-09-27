@@ -16,6 +16,11 @@ const
 type
   TNovaPkgSpec = class;
 
+  TAuthor = record
+    Name: string;
+    Email: string;
+  end;
+
   TDependency = record
     Spec: TNovaPkgSpec;
     Constraint: string;
@@ -28,15 +33,14 @@ type
   TNovaPkgSpec = class
     Name: string;
     License: string;
-    AuthorName: string;
-    AuthorEmail: string;
+    Authors: array of TAuthor;
     Description: string;
 
     PackageType: string;
 
     Require: TDependencies;
     RequireDev: TDependencies;
-    Bin: array of string;
+    Source: array of string;
 
     FileName: string;
     ProgramFile: string;
@@ -47,14 +51,16 @@ type
     procedure LoadFromFile;
     procedure SaveToFile;
 
+    procedure AddAuthor(const AName, AEmail: string);
+    function DefaultAuthorName: string;
+    function DefaultAuthorEmail: string;
+
     function RequireCount: integer;
     function RequireAt(Index: integer): TDependency;
     function RequireDevCount: integer;
     function RequireDevAt(Index: integer): TDependency;
   private
     function DefaultPackageName: string;
-    function DefaultAuthor: string;
-    function DefaultEmail: string;
   end;
 
 function FindDefaultProgramFile(const Folder: string): string;
@@ -188,13 +194,11 @@ begin
 
   Name := DefaultPackageName;
   License := '';
-  AuthorName := DefaultAuthor;
-  AuthorEmail := DefaultEmail;
   Description := '';
   PackageType := 'library';
   SetLength(Require, 0);
   SetLength(RequireDev, 0);
-  SetLength(Bin, 0);
+  SetLength(Source, 0);
   FileName := DEP_FILE;
 
   if DirectoryExists('./src') then Folder := './src'
@@ -217,7 +221,6 @@ var
   O:    TJSONObject;
   S:    TStringList;
   AuthorRaw: string;
-  I:    SizeInt;
 begin
   if FileName = '' then FileName := DEP_FILE;
   if not FileExists(FileName) then Exit;
@@ -236,29 +239,36 @@ begin
 
     name := O.Get('name', '');
     License := O.Get('license', '');
-    AuthorRaw := O.Get('author', '');
-    I := Pos('<', AuthorRaw);
-    if I > 0 then
+
+    // Read the array of name / email from authors
+    if O.Find('authors') <> nil then
     begin
-      AuthorName := Trim(Copy(AuthorRaw, 1, I - 1));
-      AuthorEmail := Trim(Copy(AuthorRaw, I + 1, Length(AuthorRaw) - I - 1));
-    end
-    else
-    begin
-      AuthorName := AuthorRaw;
-      AuthorEmail := '';
+      // Raw := O.Arrays['authors'];
+      // Authors := ...
     end;
+
     Description := O.Get('description', '');
     PackageType := O.Get('type', '');
 
-    if O.Find('bin') <> nil then
+    // Read the required packages array
+    if O.Find('required') <> nil then
     begin
-      //Bin := JSONArrayToStringArray(O.Arrays['bin']);
-      if Length(Bin) > 0 then
-        ProgramFile := Bin[0];
-    end
-    else
-      SetLength(Bin, 0);
+      // Raw := O.Arrays['required'];
+      // Required := ...
+    end;
+
+    // Read the required-dev packages array
+    if O.Find('required-dev') <> nil then
+    begin
+      // Raw := O.Arrays['required-dev'];
+      // RequiredDev := ...
+    end;
+
+    if O.Find('source') <> nil then
+    begin
+      // Raw := O.Arrays['source'];
+      // Source := ...
+    end;
 
   finally
     Data.Free;
@@ -270,6 +280,7 @@ var
   O, AuthorObj: TJSONObject;
   S: TStringList;
   AuthorsArray: TJSONArray;
+  i: integer;
 begin
   if FileName = '' then FileName := DEP_FILE;
 
@@ -285,13 +296,17 @@ begin
     if License <> '' then
       O.Add('license', License);
 
-    if AuthorName <> '' then
+    if Length(Authors) > 0 then
     begin
-      AuthorObj := TJSONObject.Create;
-      AuthorObj.Add('name', AuthorName);
-      AuthorObj.Add('email', AuthorEmail);
       AuthorsArray := TJSONArray.Create;
-      AuthorsArray.Add(AuthorObj);
+
+      for i := 0 to Length(Authors) - 1 do
+      begin
+        AuthorObj := TJSONObject.Create;
+        AuthorObj.Add('name', Authors[i].Name);
+        AuthorObj.Add('email', Authors[i].Email);
+        AuthorsArray.Add(AuthorObj);
+      end;
 
       // Add the authors array to the main JSON
       O.Add('authors', AuthorsArray);
@@ -313,6 +328,20 @@ begin
     end;
   finally
     O.Free;
+  end;
+end;
+
+procedure TNovaPkgSpec.AddAuthor(const AName, AEmail: string);
+var
+  len: integer;
+begin
+  len := Length(Authors);
+  SetLength(Authors, len + 1);
+
+  with Authors[len] do
+  begin
+    Name:= AName;
+    Email:= AEmail;
   end;
 end;
 
@@ -404,7 +433,7 @@ begin
   end;
 end;
 
-function TNovaPkgSpec.DefaultAuthor: string;
+function TNovaPkgSpec.DefaultAuthorName: string;
 var
   Git:      TGitCLI;
   ResName:  TGitResult;
@@ -442,7 +471,7 @@ begin
   end;
 end;
 
-function TNovaPkgSpec.DefaultEmail: string;
+function TNovaPkgSpec.DefaultAuthorEmail: string;
 var
   Git:      TGitCLI;
   ResEmail: TGitResult;

@@ -29,6 +29,7 @@ uses
 procedure TInitCommand.Execute;
 var
   Spec: TNovaPkgSpec;
+  AuthorName, AuthorEmail: String;
 begin
   // Banner
   writeln;
@@ -45,9 +46,12 @@ begin
     Spec.Name := Prompt('Package name (vendor/name)', Spec.Name, 'ml-2');
     Spec.Description := Prompt('Description', Spec.Description, 'ml-2');
 
-    Spec.AuthorName := Prompt('Author', Spec.AuthorName, 'ml-2', 'n');
-    if Spec.AuthorName <> '' then
-      Spec.AuthorEmail := Prompt('Email', Spec.AuthorEmail, 'ml-2', 'n');
+    AuthorName := Prompt('Author', Spec.DefaultAuthorName, 'ml-2', 'n');
+    if AuthorName <> '' then
+    begin
+      AuthorEmail := Prompt('Email', Spec.DefaultAuthorEmail, 'ml-2', 'n');
+      Spec.AddAuthor(AuthorName, AuthorEmail);
+    end;
 
     Spec.PackageType := Prompt('Package Type (e.g. library, project, metapackage)',
       Spec.PackageType, 'ml-2');
