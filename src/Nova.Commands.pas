@@ -6,7 +6,6 @@ interface
 
 uses
   Classes,
-  Contnrs,
   Nova.Command,
   Nova.Command.Init,
   SysUtils,

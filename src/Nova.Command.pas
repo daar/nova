@@ -8,9 +8,6 @@ uses
   Classes,
   SysUtils;
 
-const
-  DEP_FILE = 'nova.json';
-
 type
   { ICommand interface }
   ICommand = interface
