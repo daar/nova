@@ -25,7 +25,12 @@ type
     procedure FreeLockFile;
     procedure PrintDependencies;
     procedure PrintDependency(const Dep: TDependency; IsDev: Boolean; Indent: string = '');
-    procedure PrintDependencyTree(const Dep: TDependency; const Indent: string = '');
+    procedure PrintDependencyTree(
+      const Dep: TDependency;
+      const Prefix: string = '';
+      const IsLast: Boolean = True;
+      Visited: TStringList = nil;
+      const IsDev: Boolean = False);
     function FormatConstraint(const Dep: TDependency): string;
     function FormatVersion(const Repo: string; out Commit: string; out Installed: Boolean): string;
   public
@@ -147,66 +152,133 @@ begin
     PrintDependencyTree(Dep, Indent + '   ');
 end;
 
-procedure TShowCommand.PrintDependencyTree(const Dep: TDependency; const Indent: string = '');
+procedure TShowCommand.PrintDependencyTree(
+  const Dep: TDependency;
+  const Prefix: string = '';
+  const IsLast: Boolean = True;
+  Visited: TStringList = nil;
+  const IsDev: Boolean = False);
 var
-  DepSpec: TNovaPkgSpec;
+  DepPath: string;
   DepLock: TJSONObject;
   RequiresObj: TJSONObject;
-  DepPath, FileName: string;
-  Keys: TStringList;
-  i: Integer;
+  i, ChildrenCount: Integer;
   Child: TDependency;
   ms: TMemoryStream;
+  AlreadyVisited: Boolean;
+  VersionStr, CommitStr: string;
+  TreeChar, NewPrefix: string;
 begin
-  // Assume dependency repos are installed in ./vendor/<name>/
-  DepPath := IncludeTrailingPathDelimiter('vendor' + PathDelim + Dep.Name);
-
-  FileName := DepPath + 'nova.json';
-  DepSpec := TNovaPkgSpec.Create;
-  DepSpec.LoadFromFile(FileName);
-
-  // Load lock file if present
-  DepLock := nil;
-  if FileExists(DepPath + 'nova.lock') then
-  begin
-        ms := TMemoryStream.Create;
-    try
-      ms.LoadFromFile(DepPath + 'nova.lock');
-      DepLock := TJSONObject(GetJson(ms));
-    finally
-      ms.Free;
-    end;
-  end;
+  // Initialize visited list on first call
+  if Visited = nil then
+    Visited := TStringList.Create;
 
   try
-    // Print normal requires
+    // Circular dependency detection
+    AlreadyVisited := Visited.IndexOf(Dep.Name) >= 0;
+    if AlreadyVisited then
+    begin
+      Writeln(render(Prefix + '└─ ' + Dep.Name +
+        ' <span class="text-yellow-300">(circular dependency)</span>'));
+      Exit;
+    end;
+
+    Visited.Add(Dep.Name);
+
+    // Determine tree characters
+    if IsLast then
+      TreeChar := '└─ '
+    else
+      TreeChar := '├─ ';
+
+    if IsLast then
+      NewPrefix := Prefix + '   '
+    else
+      NewPrefix := Prefix + '│  ';
+
+    // Compute dependency path
+    DepPath := IncludeTrailingPathDelimiter('vendor' + PathDelim + Dep.Name);
+
+    // Load lock file
+    DepLock := nil;
+    if FileExists(DepPath + 'nova.lock') then
+    begin
+      ms := TMemoryStream.Create;
+      try
+        ms.LoadFromFile(DepPath + 'nova.lock');
+        DepLock := TJSONObject(GetJson(ms));
+      finally
+        ms.Free;
+      end;
+    end;
+
+    // Format version & commit
+    VersionStr := '';
+    CommitStr := '';
+    if Assigned(DepLock) then
+    begin
+      if DepLock.Find('requires') <> nil then
+      begin
+        if DepLock.Objects['requires'].Find(Dep.Name) <> nil then
+        begin
+          VersionStr := DepLock.Objects['requires'].Objects[Dep.Name].Get('version','');
+          CommitStr := DepLock.Objects['requires'].Objects[Dep.Name].Get('commit','');
+        end;
+      end;
+    end;
+
+    if VersionStr <> '' then
+      VersionStr := render('<span class="text-green-400">' + VersionStr + '</span>')
+    else
+      VersionStr := render('<span class="text-red-500">(not installed)</span>');
+
+    if CommitStr <> '' then
+      CommitStr := render('<span class="text-blue-400">(' + Copy(CommitStr,1,7) + ')</span>')
+    else
+      CommitStr := '';
+
+    // Print current dependency
+    if IsDev then
+    Writeln(render(
+      Prefix + TreeChar +'<span class="bg-fuchsia-600 text-slate-300">[dev]</span> ') +
+      Dep.Name + ' ' + VersionStr + ' ' + CommitStr)
+      else
+      Writeln(render(
+        Prefix + TreeChar) +
+        Dep.Name + ' ' + VersionStr + ' ' + CommitStr);
+
+    // Recurse into normal requires
     if Assigned(DepLock) and (DepLock.Find('requires') <> nil) then
     begin
       RequiresObj := DepLock.Objects['requires'];
-      for i := 0 to RequiresObj.Count - 1 do
+      ChildrenCount := RequiresObj.Count;
+      for i := 0 to ChildrenCount - 1 do
       begin
         Child.Name := RequiresObj.Names[i];
-        Child.Constraint := RequiresObj.Objects[Child.Name].Get('constraint', '');
-        PrintDependency(Child, False, Indent + '  ');
+        Child.Constraint := RequiresObj.Objects[Child.Name].Get('constraint','');
+        PrintDependencyTree(Child, NewPrefix, i = ChildrenCount - 1, Visited, False);
       end;
     end;
 
-    // Print dev requires
+    // Recurse into dev requires
     if Assigned(DepLock) and (DepLock.Find('require-dev') <> nil) then
     begin
       RequiresObj := DepLock.Objects['require-dev'];
-      for i := 0 to RequiresObj.Count - 1 do
+      ChildrenCount := RequiresObj.Count;
+      for i := 0 to ChildrenCount - 1 do
       begin
         Child.Name := RequiresObj.Names[i];
-        Child.Constraint := RequiresObj.Objects[Child.Name].Get('constraint', '');
-        PrintDependency(Child, True, Indent + '  ');
+        Child.Constraint := RequiresObj.Objects[Child.Name].Get('constraint','');
+        PrintDependencyTree(Child, NewPrefix, i = ChildrenCount - 1, Visited, True);
       end;
     end;
+
   finally
     DepLock.Free;
+    if (Visited.Count = 1) then
+      Visited.Free;
   end;
 end;
-
 
 procedure TShowCommand.PrintDependencies;
 var
