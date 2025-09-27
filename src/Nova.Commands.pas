@@ -8,6 +8,7 @@ uses
   Classes,
   Nova.Command,
   Nova.Command.Init,
+  Nova.Command.Show,
   SysUtils,
   TermStyle;
 

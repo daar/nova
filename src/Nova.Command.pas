@@ -79,14 +79,6 @@ type
     function Description: string; override;
   end;
 
-  TShowCommand = class(TBaseCommand)
-  public
-    constructor Create; override;
-    procedure Execute; override;
-    function name: string; override;
-    function Description: string; override;
-  end;
-
 implementation
 
 uses
@@ -220,29 +212,6 @@ end;
 function TInstallCommand.Description: string;
 begin
   Result := 'Install all requirements and update lock file';
-end;
-
-{ TShowCommand }
-
-constructor TShowCommand.Create;
-begin
-  inherited Create;
-  AddOption('--tree', 'Show dependency tree instead of flat list');
-end;
-
-procedure TShowCommand.Execute;
-begin
-  writeln('Executing "show" command...');
-end;
-
-function TShowCommand.name: string;
-begin
-  Result := 'show';
-end;
-
-function TShowCommand.Description: string;
-begin
-  Result := 'Show installed packages';
 end;
 
 end.
