@@ -21,14 +21,14 @@ type
 implementation
 
 uses
-  Nova.Package.Spec,
+  Nova.Package,
   TermStyle;
 
   { TInitCommand }
 
 procedure TInitCommand.Execute;
 var
-  Spec: TNovaPkgSpec;
+  Pkg: TNovaPackage;
   AuthorName, AuthorEmail: String;
 begin
   // Banner
@@ -41,32 +41,32 @@ begin
     + DEP_FILE + '</b> config</span>'));
   Writeln;
 
-  Spec := TNovaPkgSpec.Create;
+  Pkg := TNovaPackage.Create;
   try
-    Spec.Name := Prompt('Package name (vendor/name)', Spec.Name, 'ml-2');
-    Spec.Description := Prompt('Description', Spec.Description, 'ml-2');
+    Pkg.Name := Prompt('Package name (vendor/name)', Pkg.Name, 'ml-2');
+    Pkg.Description := Prompt('Description', Pkg.Description, 'ml-2');
 
-    AuthorName := Prompt('Author', Spec.DefaultAuthorName, 'ml-2', 'n');
+    AuthorName := Prompt('Author', Pkg.DefaultAuthorName, 'ml-2', 'n');
     if AuthorName <> '' then
     begin
-      AuthorEmail := Prompt('Email', Spec.DefaultAuthorEmail, 'ml-2', 'n');
-      Spec.AddAuthor(AuthorName, AuthorEmail);
+      AuthorEmail := Prompt('Email', Pkg.DefaultAuthorEmail, 'ml-2', 'n');
+      Pkg.AddAuthor(AuthorName, AuthorEmail);
     end;
 
-    Spec.PackageType := Prompt('Package Type (e.g. library, project, metapackage)',
-      Spec.PackageType, 'ml-2');
+    Pkg.PackageType := Prompt('Package Type (e.g. library, project, metapackage)',
+      Pkg.PackageType, 'ml-2');
 
-    Spec.License := Prompt('License', Spec.License, 'ml-2');
+    Pkg.License := Prompt('License', Pkg.License, 'ml-2');
 
-    if Spec.PackageType = 'project' then
-      Spec.AddProgramFile(Prompt('Project file', Spec.DefaultProgramFile, 'ml-2'));
+    if Pkg.PackageType = 'project' then
+      Pkg.AddSource(Prompt('Project file', Pkg.DefaultSourceFile, 'ml-2'));
 
-    Spec.SaveToFile;
+    Pkg.SaveToFile;
 
     writeln;
     success('Generated <b>' + DEP_FILE + '</b> with config information.', 'bg-green-700 text-green-100 font-bold ml-1');
   finally
-    Spec.Free;
+    Pkg.Free;
   end;
 
   // Next steps

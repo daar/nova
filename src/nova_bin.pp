@@ -36,6 +36,6 @@ begin
         Cmd.Execute;
     end;
   finally
-    CommandList.Free; // automatically frees all commands
+    CommandList.Free;
   end;
 end.

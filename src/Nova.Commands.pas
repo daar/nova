@@ -64,7 +64,7 @@ begin
   for i := 0 to FCommands.Count - 1 do
   begin
     Cmd := ICommand(FCommands[i]);
-    if Cmd.name = CmdName then
+    if Cmd.Name = CmdName then
     begin
       Result := Cmd;
       Exit;

@@ -42,6 +42,8 @@ type
     function Description: string; virtual; abstract;
 
     procedure AddOption(const OptName, OptDesc: string);
+    function HasOption(const OptionName: string): Boolean;
+
     function OptionCount: integer;
     function Option(Index: integer): TObject;
   end;
@@ -116,6 +118,23 @@ end;
 procedure TBaseCommand.AddOption(const OptName, OptDesc: string);
 begin
   FOptions.Add(TOption.Create(OptName, OptDesc));
+end;
+
+function TBaseCommand.HasOption(const OptionName: string): Boolean;
+var
+  i: Integer;
+  CleanOpt: string;
+begin
+  Result := False;
+  CleanOpt := LowerCase(OptionName);
+
+  for i := 0 to ParamCount do
+  begin
+    if (LowerCase(ParamStr(i)) = CleanOpt) or
+       (Pos(CleanOpt + '=', LowerCase(ParamStr(i))) = 1) then
+      exit(true);
+  end;
+  exit(false);
 end;
 
 function TBaseCommand.OptionCount: integer;
