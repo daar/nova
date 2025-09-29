@@ -18,8 +18,8 @@ type
     procedure LoadRootPackage;
     procedure PrintDependencies;
     procedure PrintDependency(var res: TResolved; var req: TRequired);
-    procedure PrintDependencyTree(const Res: TResolved; const Prefix: string = ''; const IsLast: Boolean = True;
-      Visited: TStringList = nil; const IsDev: Boolean = False);
+    procedure PrintDependencyTree(const AName: string; const IsLast: Boolean;
+      Visited: TStringList; const Level: byte = 1);
     function FormatConstraint(const Constraint: string): string;
     function FormatVersion(const Res: TResolved): string;
     function GitStatusString(const Repo: string): string;
@@ -74,7 +74,7 @@ begin
   // Res.Name empty means not installed / not resolved
   if Res.Name = '' then
   begin
-    Result := render('<span class="text-red-500">(not installed)</span>');
+    //Result := render('<span class="text-red-500">(not installed)</span>');
     Exit;
   end;
 
@@ -126,21 +126,26 @@ begin
   end;
 end;
 
-procedure TShowCommand.PrintDependencyTree(const Res: TResolved; const Prefix: string; const IsLast: Boolean;
-  Visited: TStringList; const IsDev: Boolean);
+procedure TShowCommand.PrintDependencyTree(const AName: string;
+  const IsLast: Boolean; Visited: TStringList; const Level: byte);
 var
   i: Integer;
-  childName: string;
-  childRes: TResolved;
+  childName, Prefix: string;
+  childRes, Res: TResolved;
 begin
-  if Res.Name = '' then Exit;
+  Res := FPackage.FindResolved(AName);
+  Prefix := StringOfChar(' ', Level * 3);
+
+  if Res.Name = '' then
+  begin
+    Writeln(render(Prefix + '        └─' + AName + ' <span class="text-red-500">(not installed)</span>'));
+    Exit;
+  end;
 
   // Check for possible circular dependency
   if Visited.IndexOf(Res.Name) >= 0 then
   begin
-    write(Prefix);
-    //PrintDependency(Res, FPackage
-    Writeln(render(Prefix + '└─ ' + Res.Name + ' ' + FormatVersion(Res) +
+    Writeln(render(Prefix + '        └─' + Res.Name + ' ' + FormatVersion(Res) +
       ' <span class="text-yellow-300">[circular]</span>'));
     Exit;
   end;
@@ -150,12 +155,11 @@ begin
   // Recurse for all dependecies
   for i := 0 to High(Res.Required) do
   begin
-    childName := Res.Required[i];
-    childRes := FPackage.FindResolved(childName);
-    PrintDependencyTree(childRes, Prefix + Prefix, i = High(Res.Required), Visited, childRes.Dev);
+    childName := Res.Required[i].Name;
+    PrintDependencyTree(childName, i = High(Res.Required), Visited, Level + 1);
   end;
 
-  Writeln(render(Prefix + '└─ ' + Res.Name + ' ' + FormatVersion(Res)));
+  Writeln(render(Prefix + '       └─' + Res.Name + ' ' + FormatVersion(Res)));
 end;
 
 procedure TShowCommand.PrintDependencies;
@@ -164,8 +168,8 @@ var
   req: TRequired;
   res: TResolved;
   Visited: TStringList;
-  preq: TStringArray;
-  pkgname: String;
+  preq: TRequiredArray;
+  pkgname: TRequired;
 begin
   if FPackage.RequiredCount = 0 then
   begin
@@ -190,7 +194,7 @@ begin
       try
         preq := FPackage.FindPackageRequirements(req.Name);
           for pkgname in preq do
-            PrintDependencyTree(FPackage.FindResolved(pkgname), '   ', True, Visited, req.Dev);
+            PrintDependencyTree(pkgname.Name,True, Visited);
       finally
         Visited.Free;
       end;

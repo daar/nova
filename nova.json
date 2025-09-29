@@ -32,7 +32,11 @@
       "commit": "537814dab412f635e6a235d20edef68bb78682a0",
       "dev": false,
       "required": [
-        "daar/taplib"
+        {
+          "name": "daar/taplib",
+          "constraint": "^0.1",
+          "dev": true
+        }
       ]
     },
     {

@@ -24,16 +24,17 @@ type
     Dev: boolean;
   end;
 
+  TRequiredArray = array of TRequired;
+
   TResolved = record
     Name: string;
     Version: string;
     Commit: string;
     Dev: boolean;
     Source: array of string;
-    Required: array of string;  // Names of other resolved packages this depends on
+    Required: TRequiredArray;  // Names of other resolved packages this depends on
   end;
 
-  TRequiredArray = array of TRequired;
   TResolvedArray = array of TResolved;
 
   { TNovaPackage }
@@ -82,7 +83,7 @@ type
     procedure AddSource(const FileName: string);
     procedure AddRequired(const AName, Constraint: string; const Dev: boolean);
     procedure AddResolved(const AName, AVersion, Commit: string;
-      Dev: boolean; const Source: array of string; const Required: array of string);
+      Dev: boolean; const Source: array of string; const Required: TRequiredArray);
 
     // Defaults
     function DefaultAuthorName: string;
@@ -98,7 +99,7 @@ type
 
     // --- Dependency handling ---
     function FindResolved(const AName: string): TResolved;
-    function FindPackageRequirements(const AName: string): TStringArray;
+    function FindPackageRequirements(const AName: string): TRequiredArray;
   end;
 
 implementation
@@ -182,10 +183,11 @@ end;
 
 procedure TNovaPackage.LoadFromJSON(const Obj: TJSONObject);
 var
-  i:      integer;
-  Raw:    TJSONArray;
-  SourceArray, RequiredArray: TStringArray;
-  ResObj: TJSONObject;
+  i, k:      integer;
+  Raw, ReqArr:    TJSONArray;
+  SourceArray: TStringArray;
+  RequiredArray: TRequiredArray;
+  ResObj, ReqObj: TJSONObject;
 begin
   FName := Obj.Get('name', '');
   FLicense := Obj.Get('license', '');
@@ -243,7 +245,20 @@ begin
 
         // safely convert 'required' JSON array to string array
         if (ResObj.Find('required') <> nil) and (ResObj.Arrays['required'] <> nil) then
-          RequiredArray := JSONArrayToStringArray(ResObj.Arrays['required'])
+        begin
+          ReqArr := ResObj.Arrays['required'];
+          SetLength(RequiredArray, ReqArr.Count);
+          for k := 0 to ReqArr.Count - 1 do
+          begin
+            if ReqArr.Items[k] is TJSONObject then
+            begin
+              ReqObj := TJSONObject(ReqArr.Items[k]);
+              RequiredArray[k].Name := ReqObj.Get('name', '');
+              RequiredArray[k].Constraint := ReqObj.Get('constraint', '');
+              RequiredArray[k].Dev := ReqObj.Get('dev', False);
+            end;
+          end;
+        end
         else
           SetLength(RequiredArray, 0);
 
@@ -321,10 +336,16 @@ begin
 
       if Length(FResolved[i].Required) > 0 then
       begin
-        RequiredNames := TJSONArray.Create;
+        RequiredArray := TJSONArray.Create;
         for j := 0 to High(FResolved[i].Required) do
-          RequiredNames.Add(FResolved[i].Required[j]);
-        ResObj.Add('required', RequiredNames);
+        begin
+          ReqObj := TJSONObject.Create;
+          ReqObj.Add('name', FResolved[i].Required[j].Name);
+          ReqObj.Add('constraint', FResolved[i].Required[j].Constraint);
+          ReqObj.Add('dev', FResolved[i].Required[j].Dev);
+          RequiredArray.Add(ReqObj);
+        end;
+        ResObj.Add('required', RequiredArray);
       end;
 
       ResolvedArray.Add(ResObj);
@@ -526,7 +547,8 @@ begin
 end;
 
 procedure TNovaPackage.AddResolved(const AName, AVersion, Commit: string;
-  Dev: boolean; const Source: array of string; const Required: array of string);
+  Dev: boolean; const Source: array of string;
+  const Required: TRequiredArray);
 var
   l, i: integer;
 begin
@@ -679,7 +701,7 @@ begin
     Result.Name := '';
 end;
 
-function TNovaPackage.FindPackageRequirements(const AName: string): TStringArray;
+function TNovaPackage.FindPackageRequirements(const AName: string): TRequiredArray;
 var
   i: integer;
 begin
