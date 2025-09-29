@@ -41,12 +41,11 @@ type
   TNovaPackage = class
   private
     FName: string;
-    FVersion: string;
     FLicense: string;
     FAuthors: array of TAuthor;
     FSource: TStringArray;
     FDescription: string;
-    FPackageType: string;  // 'project', 'library', 'metapackage', etc.
+    FPackageType: string;        // 'project', 'library', 'metapackage', etc.
 
     FRequired: TRequiredArray;   // from nova.json
     FResolved: TResolvedArray;   // from nova.lock
@@ -73,7 +72,6 @@ type
     property Description: string read FDescription write FDescription;
     property PackageType: string read FPackageType write FPackageType;
     property License: string read FLicense write FLicense;
-    property Version: string read FVersion write FVersion;
 
     // --- File operations ---
     procedure LoadFromFile(const FullPath: string = DEP_FILE);
@@ -90,6 +88,7 @@ type
     function DefaultAuthorName: string;
     function DefaultAuthorEmail: string;
     function DefaultSourceFile(const Folder: string = ''): string;
+    function DefaultPackageName: string;
 
     // --- Required / Resolved ---
     function RequiredCount: integer;
@@ -103,12 +102,14 @@ type
 
 implementation
 
+uses
+  GitCLI;
+
 { TNovaPackage }
 
 constructor TNovaPackage.Create;
 begin
   FName := '';
-  FVersion := '';
   FLicense := '';
   FDescription := '';
   FPackageType := 'library';
@@ -186,7 +187,6 @@ var
   ResObj: TJSONObject;
 begin
   FName := Obj.Get('name', '');
-  FVersion := Obj.Get('version', '');
   FLicense := Obj.Get('license', '');
   FDescription := Obj.Get('description', '');
   FPackageType := Obj.Get('type', 'library');
@@ -261,11 +261,10 @@ end;
 procedure TNovaPackage.SaveToJSON(Obj: TJSONObject);
 var
   i, j: integer;
-  AuthObj, ReqObj, ResObj, ReqNames, SourceObj: TJSONObject;
+  AuthObj, ReqObj, ResObj: TJSONObject;
   AuthorsArray, RequiredArray, ResolvedArray, RequiredNames, SourceArray: TJSONArray;
 begin
   Obj.Add('name', FName);
-  Obj.Add('version', FVersion);
   Obj.Add('license', FLicense);
   Obj.Add('description', FDescription);
   Obj.Add('type', FPackageType);
@@ -346,19 +345,74 @@ begin
 end;
 
 function TNovaPackage.DefaultAuthorName: string;
+var
+  Git:      TGitCLI;
+  ResName:  TGitResult;
+  FullName: string;
+  Path:     string;
 begin
-  if Length(FAuthors) > 0 then
-    Result := FAuthors[0].Name
-  else
-    Result := 'unknown';
+  Path := GetCurrentDir;
+  Git := TGitCLI.Create(Path);
+  try
+    // --- Try to get Git local/global user information ---
+    ResName := Git.GetUserName;
+
+    FullName := Trim(ResName.StdOut);
+
+    // --- Fallback to environment variables if Git info not available ---
+    if FullName = '' then
+      FullName := GetEnvironmentVariable('GIT_AUTHOR_NAME');
+
+    // --- Fallback to generic environment/user info ---
+    if FullName = '' then
+    begin
+      {$IFDEF WINDOWS}
+      FullName := GetEnvironmentVariable('USERNAME');
+      {$ELSE}
+      FullName := GetEnvironmentVariable('USER');
+      {$ENDIF}
+      if FullName = '' then
+        FullName := 'user';
+    end;
+
+    // --- Return formatted author ---
+    Result := FullName;
+  finally
+    Git.Free;
+  end;
 end;
 
 function TNovaPackage.DefaultAuthorEmail: string;
+var
+  Git:      TGitCLI;
+  ResEmail: TGitResult;
+  Email:    string;
+  Path:     string;
 begin
-  if Length(FAuthors) > 0 then
-    Result := FAuthors[0].Email
-  else
-    Result := 'unknown@example.com';
+  Path := GetCurrentDir;
+  Git := TGitCLI.Create(Path);
+  try
+    // --- Try to get Git local/global user information ---
+    ResEmail := Git.GetUserEmail;
+
+    Email := Trim(ResEmail.StdOut);
+
+    // --- Fallback to environment variables if Git info not available ---
+    if Email = '' then
+      Email := GetEnvironmentVariable('GIT_AUTHOR_EMAIL');
+
+    // --- Fallback to generic environment/user info ---
+    if Email = '' then
+      Email := GetEnvironmentVariable('EMAIL');
+
+    if Email = '' then
+      Email := 'user@example.com';
+
+    // --- Return formatted author ---
+    Result := Email;
+  finally
+    Git.Free;
+  end;
 end;
 
 function TNovaPackage.DefaultSourceFile(const Folder: string): string;
@@ -379,6 +433,74 @@ begin
   Result := FindProgramRecursive(SearchFolder, '.pp');
   if Result = '' then
     Result := FindProgramRecursive(SearchFolder, '.pas');
+end;
+
+function TNovaPackage.DefaultPackageName: string;
+var
+  Git: TGitCLI;
+  Res: TGitResult;
+  RemoteURL: string;
+  P:   integer;
+  UserName, FolderName, Path: string;
+begin
+  Path := GetCurrentDir;
+
+  // --- First: check if inside a git repo ---
+  Git := TGitCLI.Create(Path);
+  try
+    Res := Git.GetRemoteURL('origin');
+    if Res.Success then
+    begin
+      RemoteURL := Trim(Res.StdOut);
+      if RemoteURL <> '' then
+      begin
+        // --- Handle SSH style: git@github.com:user/repo.git ---
+        if (Pos('@', RemoteURL) > 0) and (Pos(':', RemoteURL) > 0) then
+        begin
+          P := Pos(':', RemoteURL);
+          RemoteURL := Copy(RemoteURL, P + 1, MaxInt);
+        end
+        else
+        begin
+          // --- Handle HTTPS style: https://github.com/user/repo.git ---
+          P := Pos('//', RemoteURL);
+          if P > 0 then
+            RemoteURL := Copy(RemoteURL, P + 2, MaxInt); // strip scheme
+          P := Pos('/', RemoteURL);
+          if P > 0 then
+            RemoteURL := Copy(RemoteURL, P + 1, MaxInt); // strip host
+        end;
+
+        // Remove .git if present
+        if RemoteURL.EndsWith('.git') then
+          Delete(RemoteURL, Length(RemoteURL) - 3, 4);
+
+        exit(LowerCase(RemoteURL));
+      end;
+    end
+    else
+    begin
+      // --- Fallback: username/foldername ---
+      {$IFDEF WINDOWS}
+        SetLength(UserName, 256);
+        if GetEnvironmentVariable('USERNAME', PChar(UserName), Length(UserName)) > 0 then
+          UserName := Trim(PChar(UserName));
+      {$ELSE}
+      UserName := GetEnvironmentVariable('USER');
+      {$ENDIF}
+
+      if UserName = '' then
+        UserName := 'user';
+
+      FolderName := ExtractFileName(Path);
+      if FolderName = '' then
+        FolderName := 'project';
+
+      exit(LowerCase(UserName + '/' + FolderName));
+    end;
+  finally
+    Git.Free;
+  end;
 end;
 
 procedure TNovaPackage.AddSource(const FileName: string);

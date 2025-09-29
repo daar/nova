@@ -43,7 +43,7 @@ begin
 
   Pkg := TNovaPackage.Create;
   try
-    Pkg.Name := Prompt('Package name (vendor/name)', Pkg.Name, 'ml-2');
+    Pkg.Name := Prompt('Package name (vendor/name)', Pkg.DefaultPackageName, 'ml-2');
     Pkg.Description := Prompt('Description', Pkg.Description, 'ml-2');
 
     AuthorName := Prompt('Author', Pkg.DefaultAuthorName, 'ml-2', 'n');
