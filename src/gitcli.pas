@@ -84,6 +84,9 @@ begin
   Result.StdErr := '';
   Result.Success := False;
 
+  if not DirectoryExists(FRepositoryPath) then
+    exit;
+
   Proc := TProcess.Create(nil);
   StdOutStream := TStringList.Create;
   StdErrStream := TStringList.Create;
