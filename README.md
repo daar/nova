@@ -26,21 +26,21 @@ You can install Nova in two ways:
 
 ## Workflow Overview
 
-Nova provides **four main workflow commands**. Each command affects the `nova.json`, `nova.lock`, or the `vendor` folder in different ways. Understanding this relationship is key to managing your development environment.
+Nova provides **four main workflow commands**. Each command affects the `nova.json`, or the `vendor` folder in different ways. Understanding this relationship is key to managing your development environment.
 
-| Command   | `nova.json`                  | `nova.lock`                     | `vendor`                              | Notes                          |
-|-----------|------------------------------|---------------------------------|---------------------------------------|--------------------------------|
-| `require` | Adds package with constraint | Resolves + updates lock file    | Installs new packages, updates vendor | Fetch + install in one step    |
-| `remove`  | Removes package entry        | Re-resolves + updates lock file | Removes unused packages               | Keeps required transitive deps |
-| `update`  | No changes                   | Re-resolves + updates lock file | Rebuilds vendor entirely              | Upgrades all dependencies      |
-| `install` | No changes                   | Uses existing lock (no changes) | Syncs vendor with lock file           | Reproducible environment setup |
+| Command   | `nova.json`                                      | `vendor`                              | Notes                                       |
+|-----------|--------------------------------------------------|---------------------------------------|---------------------------------------------|
+| `require` | Adds package with constraint, resolves packages. | Installs new packages, updates vendor | Fetch + install in one step                 |
+| `remove`  | Removes package entry, updates resolved packages.| Removes unused packages               | Keeps required transitive deps              |
+| `update`  | Re-resolves + updates packages.                  | Rebuilds vendor entirely              | Rebuilds all dependencies and vendor folder |
+| `install` | No changes, uses exact resolved packages         | Syncs vendor with resolved packages   | Reproduces environment setup                |
 
 
-> **Note:** After every command, Nova automatically regenerates `fpc.cfg` from the `nova.lock` file, ensuring your build configuration stays up to date.
+> **Note:** After every command, Nova automatically regenerates `fpc.cfg` from the `resolved` packages, ensuring your build configuration stays up to date.
 
 ## Getting Started
 
-A typical workflow to set up a new project might look like this:
+A typical workflow to set up a new project looks like this:
 
 ```bash
 # Initialize nova.json (optional but recommended)
@@ -49,11 +49,11 @@ nova init
 # Add a dependency (resolves version automatically)
 nova require daar/linkedlist
 
-# Update lock file and rebuild vendor folder
+# Update resolved packages and rebuild vendor folder
 nova update
 ```
 
-Once your project is ready, make sure to commit both `nova.json` and `nova.lock` to version control.
+Once your project is ready, make sure to commit the `nova.json` file to version control.
 
 To reproduce an environment locally or in a deployment pipeline, run:
 
@@ -61,7 +61,7 @@ To reproduce an environment locally or in a deployment pipeline, run:
 nova install
 ```
 
-This ensures the `vendor` folder is synced exactly to the versions in `nova.lock`, giving you a reproducible build.
+This ensures the `vendor` folder is synced exactly to the versions in `nova.json`, giving you a reproducible build.
 
 ## Version Constraints
 
