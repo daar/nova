@@ -1,8 +1,7 @@
 {
   "name": "nova-packager/nova",
-  "version": "0.1.0",
   "license": "MIT",
-  "description": "Example Nova project",
+  "description": "A freepascal packager",
   "type": "project",
   "authors": [
     {
