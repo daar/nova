@@ -50,14 +50,6 @@ type
 
   { Command Implementations }
 
-  TRequireCommand = class(TBaseCommand)
-  public
-    constructor Create; override;
-    procedure Execute; override;
-    function name: string; override;
-    function Description: string; override;
-  end;
-
   TRemoveCommand = class(TBaseCommand)
   public
     procedure Execute; override;
@@ -145,29 +137,6 @@ end;
 function TBaseCommand.Option(Index: integer): TObject;
 begin
   //Result := FOptions[Index];
-end;
-
-{ TRequireCommand }
-
-constructor TRequireCommand.Create;
-begin
-  inherited Create;
-  AddOption('--dev', 'Include packages as development requirement');
-end;
-
-procedure TRequireCommand.Execute;
-begin
-  writeln('Executing "require" command...');
-end;
-
-function TRequireCommand.name: string;
-begin
-  Result := 'require';
-end;
-
-function TRequireCommand.Description: string;
-begin
-  Result := 'Add one or more packages as requirement';
 end;
 
 { TRemoveCommand }

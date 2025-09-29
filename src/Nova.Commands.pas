@@ -9,6 +9,7 @@ uses
   Nova.Command,
   Nova.Command.Init,
   Nova.Command.Show,
+  Nova.Command.Require,
   SysUtils,
   TermStyle;
 

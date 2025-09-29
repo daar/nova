@@ -11,6 +11,8 @@ uses
 
 const
   DEP_FILE = 'nova.json';
+  VENDOR_DIR = 'vendor';
+  FPC_FILE = 'fpc.cfg';
 
 type
   TAuthor = record
@@ -92,6 +94,7 @@ type
     function DefaultPackageName: string;
 
     // --- Required / Resolved ---
+    function PackageAlreadyRegistered(const PackageName: string): Boolean;
     function RequiredCount: integer;
     function RequiredAt(Index: integer): TRequired;
     function ResolvedCount: integer;
@@ -522,6 +525,22 @@ begin
     end;
   finally
     Git.Free;
+  end;
+end;
+
+function TNovaPackage.PackageAlreadyRegistered(const PackageName: string
+  ): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  for i := 0 to High(FRequired) do
+  begin
+    if SameText(FRequired[i].Name, PackageName) then
+    begin
+      Result := True;
+      Exit;
+    end;
   end;
 end;
 
