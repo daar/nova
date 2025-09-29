@@ -18,16 +18,18 @@ type
     hash: string;
   end;
 
-procedure SplitPackageSpec(const FullParam: string; out PackageName, VersionConstraint: string);
+procedure SplitPackageSpec(const FullParam: string;
+  out PackageName, VersionConstraint: string);
 function parse_version(const S: string): TVersion;
 function compare_versions(const A, B: TVersion): integer;
-function matches_constraint(const Ver: TVersion; const Constraint: string): Boolean;
+function matches_constraint(const Ver: TVersion; const Constraint: string): boolean;
 
 implementation
 
-procedure SplitPackageSpec(const FullParam: string; out PackageName, VersionConstraint: string);
+procedure SplitPackageSpec(const FullParam: string;
+  out PackageName, VersionConstraint: string);
 var
-  SepPos: Integer;
+  SepPos: integer;
 begin
   SepPos := Pos(':', FullParam);
 
@@ -82,67 +84,59 @@ begin
   Result := A.Patch - B.Patch;
 end;
 
-function matches_constraint(const Ver: TVersion; const Constraint: string): Boolean;
+function matches_constraint(const Ver: TVersion; const Constraint: string): boolean;
 var
-  Num: string;
+  Num, Clean: string;
   CVer: TVersion;
-
-  function StripPrefix(const S: string; const Prefix: string): string;
-  begin
-    Result := Copy(S, Length(Prefix) + 1, MaxInt);
-  end;
-
 begin
+  Clean := Trim(Constraint);
+  if Clean = '' then
+    exit(True);
+
   Result := False;
 
-  // no constraint, always matches
-  if Constraint = '' then
-    Exit(True);
-
-  if Copy(Constraint, 1, 1) = '^' then
+  if Pos('^', Clean) = 1 then
   begin
-    Num := StripPrefix(Constraint, '^');
+    Num := Trim(Copy(Clean, 2, MaxInt));
+    if Num = '' then exit(False);
     CVer := parse_version(Num);
 
-    if CVer.Major = 0 then
-    begin
-      // pre-1.0.0: only patch-level compatible within same minor version
+    if CVer.Major > 0 then
+      Result := (Ver.Major = CVer.Major) and (compare_versions(Ver, CVer) >= 0)
+    else if CVer.Minor > 0 then
       Result := (Ver.Major = 0) and (Ver.Minor = CVer.Minor) and
-        (compare_versions(Ver, CVer) >= 0);
-    end
+        (compare_versions(Ver, CVer) >= 0)
     else
-    begin
-      // normal: same major, >= specified
-      Result := (Ver.Major = CVer.Major) and (compare_versions(Ver, CVer) >= 0);
-    end;
+      Result := (Ver.Major = 0) and (Ver.Minor = 0) and (Ver.Patch = CVer.Patch) and
+        (compare_versions(Ver, CVer) >= 0);
   end
-  else if Copy(Constraint, 1, 1) = '~' then
+  else if Pos('~', Clean) = 1 then
   begin
-    Num := StripPrefix(Constraint, '~');
+    Num := Trim(Copy(Clean, 2, MaxInt));
+    if Num = '' then exit(False);
     CVer := parse_version(Num);
-    // compatible with same major.minor version, >= specified version
     Result := (Ver.Major = CVer.Major) and (Ver.Minor = CVer.Minor) and
       (compare_versions(Ver, CVer) >= 0);
   end
-  else if Copy(Constraint, 1, 2) = '>=' then
+  else if Pos('>=', Clean) = 1 then
   begin
-    Num := StripPrefix(Constraint, '>=');
+    Num := Trim(Copy(Clean, 3, MaxInt));
+    if Num = '' then exit(False);
     CVer := parse_version(Num);
     Result := compare_versions(Ver, CVer) >= 0;
   end
-  else if Copy(Constraint, 1, 1) = '=' then
+  else if Pos('=', Clean) = 1 then
   begin
-    Num := StripPrefix(Constraint, '=');
+    Num := Trim(Copy(Clean, 2, MaxInt));
+    if Num = '' then exit(False);
     CVer := parse_version(Num);
     Result := compare_versions(Ver, CVer) = 0;
   end
   else
   begin
-    // bare version string interpreted as exact match
-    CVer := parse_version(Constraint);
+    CVer := parse_version(Clean);
     Result := compare_versions(Ver, CVer) = 0;
   end;
 end;
 
 end.
-
