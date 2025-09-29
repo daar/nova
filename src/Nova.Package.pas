@@ -98,6 +98,7 @@ type
 
     // --- Dependency handling ---
     function FindResolved(const AName: string): TResolved;
+    function FindPackageRequirements(const AName: string): TStringArray;
   end;
 
 implementation
@@ -676,6 +677,21 @@ begin
     Result := FResolved[idx]
   else
     Result.Name := '';
+end;
+
+function TNovaPackage.FindPackageRequirements(const AName: string): TStringArray;
+var
+  i: integer;
+begin
+  SetLength(Result, 0);
+  for i := 0 to High(FResolved) do
+  begin
+    if SameText(FResolved[i].Name, AName) then
+    begin
+      Result := FResolved[i].Required;
+      Exit;
+    end;
+  end;
 end;
 
 end.

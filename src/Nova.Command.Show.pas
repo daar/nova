@@ -102,6 +102,8 @@ var
 begin
   Git := TGitCLI.Create('./vendor/' + Repo);
 
+  Result := '';
+
   try
     R := Git.Status;
 
@@ -127,12 +129,9 @@ end;
 procedure TShowCommand.PrintDependencyTree(const Res: TResolved; const Prefix: string; const IsLast: Boolean;
   Visited: TStringList; const IsDev: Boolean);
 var
-  TreeChar, NewPrefix: string;
   i: Integer;
   childName: string;
   childRes: TResolved;
-  createdVisited: Boolean;
-  nameCol, constrCol, versionCol: string;
 begin
   if Res.Name = '' then Exit;
 
@@ -156,56 +155,7 @@ begin
     PrintDependencyTree(childRes, Prefix + Prefix, i = High(Res.Required), Visited, childRes.Dev);
   end;
 
-
-  //try
-  //  if Visited.IndexOf(Res.Name) >= 0 then
-  //  begin
-  //    Writeln(render(Prefix + '└─ ' + Res.Name + ' ' + FormatVersion(Res) +
-  //      ' <span class="text-yellow-300">[circular]</span>'));
-  //    Exit;
-  //  end;
-  //
-  //  Visited.Add(Res.Name);
-  //
-  //  if IsLast then
-  //  begin
-  //    TreeChar := '└─ ';
-  //    NewPrefix := Prefix + '   ';
-  //  end
-  //  else
-  //  begin
-  //    TreeChar := '├─ ';
-  //    NewPrefix := Prefix + '│  ';
-  //  end;
-  //
-  //  // build aligned columns
-  //  if IsDev then
-  //    nameCol := Prefix + TreeChar +
-  //      render('<span class="bg-fuchsia-600 text-slate-300">[dev]</span> ') +
-  //      render('<span class="text-white">' + Res.Name + '</span>')
-  //  else
-  //    nameCol := Prefix + TreeChar + render('<span class="text-white">' + Res.Name + '</span>');
-  //
-  //  constrCol := FormatConstraint(''); // tree nodes don’t have constraints
-  //  versionCol := FormatVersion(Res);
-  //
-  //  Write(nameCol:40);
-  //  Write(constrCol:12);
-  //  Writeln(' → ', versionCol);
-  //
-  //  // recurse
-  //  for i := 0 to High(Res.Required) do
-  //  begin
-  //    childName := Res.Required[i];
-  //    childRes := FPackage.FindResolved(childName);
-  //    PrintDependencyTree(childRes, NewPrefix, i = High(Res.Required), Visited, childRes.Dev);
-  //  end;
-  //
-  //  Visited.Delete(Visited.Count - 1);
-  //finally
-  //  if createdVisited then
-  //    Visited.Free;
-  //end;
+  Writeln(render(Prefix + '└─ ' + Res.Name + ' ' + FormatVersion(Res)));
 end;
 
 procedure TShowCommand.PrintDependencies;
@@ -214,6 +164,8 @@ var
   req: TRequired;
   res: TResolved;
   Visited: TStringList;
+  preq: TStringArray;
+  pkgname: String;
 begin
   if FPackage.RequiredCount = 0 then
   begin
@@ -232,12 +184,16 @@ begin
     PrintDependency(res, req);
 
     // show dependency tree for resolved packages
-    Visited := TStringList.Create;
-    try
-      if (res.Name <> '') and FShowTree then
-        PrintDependencyTree(res, '   ', True, Visited, req.Dev);
-    finally
-      Visited.Free;
+    if  FShowTree then
+    begin
+      Visited := TStringList.Create;
+      try
+        preq := FPackage.FindPackageRequirements(req.Name);
+          for pkgname in preq do
+            PrintDependencyTree(FPackage.FindResolved(pkgname), '   ', True, Visited, req.Dev);
+      finally
+        Visited.Free;
+      end;
     end;
   end;
 end;
