@@ -97,13 +97,8 @@ end;
 function TShowCommand.GitStatusString(const Repo: string): string;
 var
   Lines: TStringList;
-  i: Integer;
-  HasM: boolean = false;
-  HasD: boolean = false;
-  HasQ: boolean = false;
   Git: TGitCLI;
   R: TGitResult;
-  GitStatus: string;
 begin
   Git := TGitCLI.Create('./vendor/' + Repo);
 
@@ -112,35 +107,21 @@ begin
 
     if not R.Success then
     begin
-      Result := render('<span class="text-fuchsia-400 ml-1">E</span>');
+      Result := render('<span class="text-yellow-200 ml-1">[error]</span>');
       Exit;
     end;
 
     Lines := TStringList.Create;
     try
       Lines.Text := R.StdOut;
-      for i := 0 to Lines.Count - 1 do
-      begin
-        if Pos('??', Lines[i]) = 1 then
-          HasQ := True
-        else if Pos('D', Trim(Lines[i])) = 1 then
-          HasD := True
-        else if Pos('M', Trim(Lines[i])) = 1 then
-          HasM := True;
-      end;
+      if Lines.Count >= 2 then
+        Result := render('<span class="text-yellow-200 ml-1">[modified]</span>');
     finally
       Lines.Free;
     end;
   finally
     Git.Free;
   end;
-
-  // Build the GitStatus string in order M, D, ?
-  if HasM then GitStatus += '<span class="text-yellow-200">M</span>';
-  if HasD then GitStatus += '<span class="text-red">D</span>';
-  if HasQ then GitStatus += '<span class="text-green">?</span>';
-
-  Result := render('<span class="ml-1">' + GitStatus + '</span>');
 end;
 
 procedure TShowCommand.PrintDependencyTree(const Res: TResolved; const Prefix: string; const IsLast: Boolean;
