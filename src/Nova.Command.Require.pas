@@ -43,6 +43,7 @@ var
   NovaPkg: TNovaPackage;
   i:      integer;
   fpcCfg: TFPCConfigWriter;
+  pkg: TResolved;
 begin
   if ParamCount < 2 then
   begin
@@ -53,9 +54,9 @@ begin
   PkgName := ParamStr(2);
   DevFlag := HasOption('--dev');
 
-  writeln('Adding requirement: ', PkgName);
+  writeln('-- Adding requirement: ', PkgName);
   if DevFlag then
-    writeln('Marking as development dependency.');
+    writeln('-- Marking as development dependency.');
 
   // Load current nova.json or package structure
   NovaPkg := TNovaPackage.Create;
@@ -70,9 +71,25 @@ begin
       if argv[i] <> '' then
       begin
         SplitPackageSpec(argv[i], packageName, versionConstraint);
-        //if not NovaPkg.PackageAlreadyRegistered(packageName) then
+        pkg := NovaPkg.FindResolved(packageName);
+        if pkg.Name = '' then
+        begin
         //  if internal_require(pkgs, packageName, versionConstraint, dep, includeDev) then
         //    NovaPkg.AddRequired(packageName, dep^.constraint, includeDev);
+        end
+        else
+          if not matches_constraint(parse_version(pkg.Version), versionConstraint) then
+          begin
+            error('Cannot install package "' + packageName + '" due to a version conflict.');
+            writeln('The package is already installed with version ' + pkg.Version + ', which does not satisfy the required constraint ' + versionConstraint);
+            writeln('Hint: Update or remove the conflicting dependency before proceeding.');
+            exit;
+          end
+          else
+          begin
+            info('Skipping package "' + packageName + '" — it is already installed (version ' + pkg.Version + ') and satisfies constraint ' + versionConstraint + '.');
+            writeln('Hint: Use "nova remove" followed by "nova install" to refresh it, or manually adjust nova.json to change the constraint.');
+          end;
       end;
     end;
 

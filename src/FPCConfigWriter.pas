@@ -75,7 +75,7 @@ begin
 
     // Save the generated config
     FPCLines.SaveToFile(FileName);
-    Writeln('Generated ', FileName);
+    Writeln('-- Generated ', FileName);
 
   finally
     FPCLines.Free;
