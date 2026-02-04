@@ -10,14 +10,29 @@ uses
 
 const
   {$IFDEF WINDOWS}
-  NOVA_BIN = './nova_bin.exe';
-  NOVA_BAK = './nova_bin.bak.exe';
+  NOVA_BIN_NAME = 'nova_bin.exe';
+  NOVA_BAK_NAME = 'nova_bin.bak.exe';
   {$ELSE}
-  NOVA_BIN   = './nova_bin';
-  NOVA_BAK   = './nova_bin.bak';
+  NOVA_BIN_NAME = 'nova_bin';
+  NOVA_BAK_NAME = 'nova_bin.bak';
   {$ENDIF}
-  UPDATE_ZIP = 'nova-bin.zip';
-  MSG_FILE   = 'nova.msg';
+  UPDATE_ZIP_NAME = 'nova-bin.zip';
+  MSG_FILE_NAME   = 'nova.msg';
+
+var
+  NovaDir: string;    // Directory where nova executable is located
+  NOVA_BIN: string;   // Full path to nova_bin
+  NOVA_BAK: string;   // Full path to backup
+  UPDATE_ZIP: string; // Full path to update zip
+  MSG_FILE: string;   // Full path to message file
+
+  // Get the directory of the nova executable
+  function GetNovaDirectory: string;
+  begin
+    Result := ExtractFilePath(ExpandFileName(ParamStr(0)));
+    if Result = '' then
+      Result := GetCurrentDir + PathDelim;
+  end;
 
   // Helper to safely delete files
   procedure SafeDelete(const FileName: string);
@@ -49,7 +64,7 @@ const
     try
       try
         Z.FileName := UPDATE_ZIP;
-        Z.OutputPath := '.';
+        Z.OutputPath := NovaDir;
         Z.UnZipAllFiles;
         success('Update applied from <b>' + UPDATE_ZIP + '</b>');
 
@@ -151,6 +166,13 @@ const
   end;
 
 begin
+  // Initialize paths based on nova executable location
+  NovaDir := GetNovaDirectory;
+  NOVA_BIN := NovaDir + NOVA_BIN_NAME;
+  NOVA_BAK := NovaDir + NOVA_BAK_NAME;
+  UPDATE_ZIP := NovaDir + UPDATE_ZIP_NAME;
+  MSG_FILE := NovaDir + MSG_FILE_NAME;
+
   try
     ExtractUpdate;
     ShowMessage;

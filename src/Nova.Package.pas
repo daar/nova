@@ -93,6 +93,10 @@ type
     function DefaultSourceFile(const Folder: string = ''): string;
     function DefaultPackageName: string;
 
+    // --- Source files ---
+    function SourceCount: integer;
+    function SourceAt(Index: integer): string;
+
     // --- Required / Resolved ---
     function PackageAlreadyRegistered(const PackageName: string): Boolean;
     function RequiredCount: integer;
@@ -103,6 +107,10 @@ type
     // --- Dependency handling ---
     function FindResolved(const AName: string): TResolved;
     function FindPackageRequirements(const AName: string): TRequiredArray;
+
+    // --- Remove operations ---
+    procedure RemoveRequired(const AName: string);
+    procedure RemoveResolved(const AName: string);
   end;
 
 implementation
@@ -337,6 +345,15 @@ begin
       ResObj.Add('commit', FResolved[i].Commit);
       ResObj.Add('dev', FResolved[i].Dev);
 
+      // Save source paths
+      if Length(FResolved[i].Source) > 0 then
+      begin
+        SourceArray := TJSONArray.Create;
+        for j := 0 to High(FResolved[i].Source) do
+          SourceArray.Add(FResolved[i].Source[j]);
+        ResObj.Add('source', SourceArray);
+      end;
+
       if Length(FResolved[i].Required) > 0 then
       begin
         RequiredArray := TJSONArray.Create;
@@ -553,6 +570,19 @@ begin
   FSource[l] := FileName;
 end;
 
+function TNovaPackage.SourceCount: integer;
+begin
+  Result := Length(FSource);
+end;
+
+function TNovaPackage.SourceAt(Index: integer): string;
+begin
+  if (Index >= 0) and (Index < Length(FSource)) then
+    Result := FSource[Index]
+  else
+    Result := '';
+end;
+
 procedure TNovaPackage.AddRequired(const AName, Constraint: string;
   const Dev: boolean);
 var
@@ -733,6 +763,34 @@ begin
       Exit;
     end;
   end;
+end;
+
+procedure TNovaPackage.RemoveRequired(const AName: string);
+var
+  idx, i: integer;
+begin
+  idx := IndexOfRequired(AName);
+  if idx < 0 then Exit;
+
+  // Shift elements down
+  for i := idx to High(FRequired) - 1 do
+    FRequired[i] := FRequired[i + 1];
+
+  SetLength(FRequired, Length(FRequired) - 1);
+end;
+
+procedure TNovaPackage.RemoveResolved(const AName: string);
+var
+  idx, i: integer;
+begin
+  idx := IndexOfResolved(AName);
+  if idx < 0 then Exit;
+
+  // Shift elements down
+  for i := idx to High(FResolved) - 1 do
+    FResolved[i] := FResolved[i + 1];
+
+  SetLength(FResolved, Length(FResolved) - 1);
 end;
 
 end.

@@ -23,6 +23,7 @@ type
   private
     FRepositoryPath: string;
     FLastError: string;
+  protected
     function RunGitCommand(const Args: array of string): TGitResult;
   public
     constructor Create(const ARepoPath: string);
@@ -32,6 +33,10 @@ type
     function Version: TGitResult;
     function Status: TGitResult;
     function Clone(const RepoURL, TargetDir: string): TGitResult;
+    function CloneDepth(const RepoURL, TargetDir: string; Depth: integer): TGitResult;
+    function Fetch(const Remote: string = 'origin'): TGitResult;
+    function FetchTags: TGitResult;
+    function CheckoutTag(const TagName: string): TGitResult;
     function Add(const Files: array of string): TGitResult;
     function Commit(const Message: string): TGitResult;
     function Push(const Remote, Branch: string): TGitResult;
@@ -84,9 +89,6 @@ begin
   Result.StdErr := '';
   Result.Success := False;
 
-  if not DirectoryExists(FRepositoryPath) then
-    exit;
-
   Proc := TProcess.Create(nil);
   StdOutStream := TStringList.Create;
   StdErrStream := TStringList.Create;
@@ -95,7 +97,8 @@ begin
     for i := Low(Args) to High(Args) do
       Proc.Parameters.Add(Args[i]);
 
-    if DirectoryExists(FRepositoryPath) then
+    // Only set working directory if it exists (clone creates new dirs)
+    if (FRepositoryPath <> '') and DirectoryExists(FRepositoryPath) then
       Proc.CurrentDirectory := FRepositoryPath;
 
     Proc.Options := [poUsePipes, poStderrToOutPut, poNoConsole];
@@ -131,6 +134,26 @@ end;
 function TGitCLI.Clone(const RepoURL, TargetDir: string): TGitResult;
 begin
   Result := RunGitCommand(['clone', RepoURL, TargetDir]);
+end;
+
+function TGitCLI.CloneDepth(const RepoURL, TargetDir: string; Depth: integer): TGitResult;
+begin
+  Result := RunGitCommand(['clone', '--depth', IntToStr(Depth), RepoURL, TargetDir]);
+end;
+
+function TGitCLI.Fetch(const Remote: string): TGitResult;
+begin
+  Result := RunGitCommand(['fetch', Remote]);
+end;
+
+function TGitCLI.FetchTags: TGitResult;
+begin
+  Result := RunGitCommand(['fetch', '--tags']);
+end;
+
+function TGitCLI.CheckoutTag(const TagName: string): TGitResult;
+begin
+  Result := RunGitCommand(['checkout', 'tags/' + TagName]);
 end;
 
 function TGitCLI.Add(const Files: array of string): TGitResult;
