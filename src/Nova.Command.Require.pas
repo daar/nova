@@ -141,11 +141,21 @@ var
 begin
   Result := False;
 
-  // Check if already resolved
+  // Check if already resolved AND actually present on disk
   if FNovaPkg.FindResolved(PackageName).Name <> '' then
   begin
-    info('Package "' + PackageName + '" is already installed.');
-    exit(True);
+    TargetPath := IncludeTrailingPathDelimiter(VENDOR_DIR) +
+      StringReplace(PackageName, '/', PathDelim, [rfReplaceAll]);
+    if DirectoryExists(TargetPath) then
+    begin
+      info('Package "' + PackageName + '" is already installed.');
+      exit(True);
+    end
+    else
+    begin
+      // Resolved in nova.json but missing on disk — remove resolved entry and reinstall
+      FNovaPkg.RemoveResolved(PackageName);
+    end;
   end;
 
   writeln('  Resolving ', PackageName, ' (', VersionConstraint, ')...');

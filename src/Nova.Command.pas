@@ -235,7 +235,7 @@ var
   NovaPkg: TNovaPackage;
   i: integer;
   Res: TResolved;
-  TargetPath, RepoURL: string;
+  TargetPath, RepoURL, TmpOutput: string;
   Git: TGitCLI;
   GitResult: TGitResult;
   InstalledCount: integer;
@@ -274,11 +274,21 @@ begin
 
       if DirectoryExists(TargetPath) then
       begin
-        writeln('  [OK] ', Res.Name, ' (', Res.Version, ')');
-        // Build project packages even if already installed
-        BuildProjectPackage(TargetPath);
-        Inc(InstalledCount);
-        continue;
+        // Verify the install is valid (has a .git directory or nova.json)
+        if DirectoryExists(IncludeTrailingPathDelimiter(TargetPath) + '.git') then
+        begin
+          writeln('  [OK] ', Res.Name, ' (', Res.Version, ')');
+          // Build project packages even if already installed
+          BuildProjectPackage(TargetPath);
+          Inc(InstalledCount);
+          continue;
+        end
+        else
+        begin
+          // Directory exists but is corrupt/incomplete — remove and reinstall
+          writeln('  Reinstalling ', Res.Name, ' (incomplete install detected)...');
+          RunCommand('rm', ['-rf', TargetPath], TmpOutput);
+        end;
       end;
 
       writeln('  Installing ', Res.Name, ' (', Res.Version, ')...');
