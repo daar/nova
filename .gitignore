@@ -1,3 +1,6 @@
 lib
 *.o
 *.ppu
+fpc.cfg
+*.lpi
+*.lps

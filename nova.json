@@ -1,0 +1,50 @@
+{
+  "name": "nova-packager/nova",
+  "license": "MIT",
+  "description": "A freepascal packager",
+  "type": "project",
+  "authors": [
+    {
+      "name": "John Doe",
+      "email": "john@example.com"
+    }
+  ],
+  "source": [
+    "src/nova.pp",
+    "src/nova_bin.pp"
+  ],
+  "required": [
+    {
+      "name": "daar/termstyle",
+      "constraint": "^0.3",
+      "dev": false
+    },
+    {
+      "name": "daar/taplib",
+      "constraint": "^0.0",
+      "dev": true
+    }
+  ],
+  "resolved": [
+    {
+      "name": "daar/termstyle",
+      "version": "v0.3.0",
+      "commit": "537814dab412f635e6a235d20edef68bb78682a0",
+      "dev": false,
+      "required": [
+        {
+          "name": "daar/taplib",
+          "constraint": "^0.1",
+          "dev": true
+        }
+      ]
+    },
+    {
+      "name": "daar/taplib",
+      "version": "v0.0.1",
+      "commit": "abd6e345d3e2a35fefea4e1ebc2242eedd97d19f",
+      "dev": true,
+      "required": []
+    }
+  ]
+}
